@@ -2,7 +2,6 @@
 If aging is information loss, then it is, in principle, reversible via error correction.
 
 
-# 🧬 AION: Algorithmic Reversal of Biological Aging via Information-Theoretic Control
 
 **A computational proof-of-concept demonstrating that aging is reversible information loss, not irreversible physical decay**
 
