@@ -3881,7 +3881,7 @@ def main():
     )
 
     
-    set_app_background("Gemini_Generated_Image_6zf6sd6zf6sd6zf6.jpeg") 
+    set_app_background("ChatGPT Image Dec 14, 2025, 07_18_26 PM.png") 
     
     # --- CUSTOM CSS: TRANSPARENT SIDEBAR & HEADER ---
     st.markdown("""
