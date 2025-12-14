@@ -667,8 +667,8 @@ def get_target_at(x: int, y: int) -> Optional[Tuple[Any, Any]]:
 
 class Phenotype:
     """
-    The 'body' of the organism. 
-    PROJECT AION UPGRADE: Simulates Aging as Information Entropy (Somatic Drift).
+    The 'body' of the organism. A collection of OrganismCells on the grid.
+    This is the physical manifestation of the Genotype.
     """
     def __init__(self, genotype: Genotype, universe_grid: UniverseGrid, settings: Dict):
         self.id = f"org_{uuid.uuid4().hex[:6]}"
@@ -676,19 +676,20 @@ class Phenotype:
         self.genotype = genotype
         self.grid = universe_grid
         self.settings = settings
+        # --- NEW: AION ATTRIBUTES ---
+        self.original_genotype = copy.deepcopy(genotype)
+        self.somatic_rules = copy.deepcopy(genotype.rule_genes)
+        self.grn_entropy = 0.0
+        self.yamanaka_pulse_count = 0
+        self.entropy_history = []
+        # --- END NEW ---
+        
         
         self.cells: Dict[Tuple[int, int], OrganismCell] = {}
         self.total_energy = 0.0
         self.age = 0
         self.is_alive = True
-        self.total_energy_production = 0.0
-        
-        # --- PROJECT AION: SOMATIC STATE ---
-        # The body has its own copy of the rules that can degrade (Epigenome)
-        # We deepcopy so we don't hurt the Genotype (Germline)
-        self.somatic_rules = copy.deepcopy(genotype.rule_genes)
-        self.information_entropy = 0.0 # The measure of aging
-        self.is_senescent = False
+        self.total_energy_production = 0.0 # Initialize
         
         # --- Initialize Zygote ---
         self.spawn_zygote()
@@ -702,57 +703,11 @@ class Phenotype:
             self.genotype.energy_consumption = sum(c.component.mass for c in self.cells.values())
             self.genotype.energy_production = self.total_energy_production
         else:
+            # Ensure genotype reflects failure
             self.genotype.cell_count = 0
             self.genotype.energy_consumption = 0
             self.genotype.energy_production = 0
-
-    def apply_yamanaka_factors(self):
-        """
-        The Cure. Resets the somatic (body) rules back to the original 
-        perfect Genotype configuration. Effectively resets entropy to 0.
-        """
-        self.somatic_rules = copy.deepcopy(self.genotype.rule_genes)
-        self.information_entropy = 0.0
-        self.is_senescent = False
-        # Heal cells
-        for cell in self.cells.values():
-            cell.energy = max(cell.energy, 5.0) # Revitalize
             
-    def accumulate_somatic_noise(self):
-        """
-        The Disease. Increases entropy and randomly corrupts the 
-        somatic rule set (Epigenetic Drift).
-        """
-        base_rate = self.settings.get('entropy_accumulation_rate', 0.01)
-        # Complex organisms age faster (more data to lose)
-        complexity_penalty = len(self.somatic_rules) * 0.05
-        
-        # Entropy Increase
-        delta_entropy = base_rate * (1.0 + complexity_penalty)
-        
-        # DNA Repair Check
-        if random.random() > self.settings.get('repair_fidelity', 0.95):
-            self.information_entropy += delta_entropy
-            
-        # --- THE ERROR CATASTROPHE (Corruption Logic) ---
-        if self.information_entropy > 0.5: # Start glitching after some buildup
-            if self.somatic_rules and random.random() < (self.information_entropy * 0.1):
-                # Pick a random rule to corrupt
-                rule_to_break = random.choice(self.somatic_rules)
-                
-                # Type A Corruption: Signal Drift (Value changes)
-                if random.random() < 0.5:
-                    rule_to_break.action_value *= random.uniform(0.5, 1.5)
-                
-                # Type B Corruption: Logic Inversion (The dangerous one)
-                # e.g., "Grow" becomes "Die", or conditions flip
-                elif random.random() < 0.1: # Rare
-                    if rule_to_break.conditions:
-                        cond = random.choice(rule_to_break.conditions)
-                        # Flip operator
-                        if cond['operator'] == '>': cond['operator'] = '<'
-                        elif cond['operator'] == '<': cond['operator'] = '>'
-
     def spawn_zygote(self):
         """Place the first cell (zygote) in the grid."""
         x, y = self.grid.width // 2, self.grid.height // 2
@@ -771,8 +726,10 @@ class Phenotype:
             return
 
         # Find a component to be the zygote.
+        # Prioritize 'Zygote' in name, then 'Primordial', then just pick one.
         zygote_comp = None
         if not self.genotype.component_genes:
+            st.warning("Genotype has no components! Cannot spawn.")
             self.is_alive = False
             return
             
@@ -788,6 +745,7 @@ class Phenotype:
         if not zygote_comp:
             zygote_comp = list(self.genotype.component_genes.values())[0]
 
+        
         zygote = OrganismCell(
             organism_id=self.id,
             component=zygote_comp,
@@ -804,7 +762,7 @@ class Phenotype:
     def develop(self):
         """
         The "Embryogeny" process.
-        Uses somatic_rules instead of genotype.rule_genes to reflect epigenetic state.
+        Grows the zygote into a multicellular organism by running the GRN.
         """
         max_dev_steps = self.settings.get('development_steps', 50)
         dev_energy = self.total_energy
@@ -817,30 +775,37 @@ class Phenotype:
             signal_snapshot: Dict[Tuple[int, int], Dict[str, float]] = {}
             for (x, y), cell in list(self.cells.items()):
                 signal_snapshot[(x, y)] = cell.state_vector.get('signals_out', {})
+            # --- ADD THIS ENTIRE BLOCK ---
+            
+        # --- 1. Signal Diffusion Step (Morphogenesis) ---
+        # Read the 'signals_out' from the *previous* step,
+        # calculate the average, and write it to 'signals_in' for *this* step.
 
-            # --- Signal Diffusion Step (Morphogenesis) ---
-            # Create a snapshot of all signals currently being emitted
-            # Calculate incoming signals for each cell based on the snapshot
-            for (x, y), cell in list(self.cells.items()):
-                cell.state_vector['signals_in'] = {} # Reset incoming signals
-                neighbors = self.grid.get_neighbors(x, y)
+        # Create a snapshot of all signals currently being emitted
+        
+        
 
-                # Tally all signals from neighbors
-                incoming_signals_tally: Dict[str, List[float]] = {}
-                for n in neighbors:
-                    neighbor_pos = (n.x, n.y)
-                    # Check if neighbor is part of this organism
-                    if neighbor_pos in signal_snapshot:
-                        for signal_name, signal_value in signal_snapshot[neighbor_pos].items():
-                            if signal_name not in incoming_signals_tally:
-                                incoming_signals_tally[signal_name] = []
-                            incoming_signals_tally[signal_name].append(signal_value)
+        # Calculate incoming signals for each cell based on the snapshot
+        for (x, y), cell in list(self.cells.items()):
+            cell.state_vector['signals_in'] = {} # Reset incoming signals
+            neighbors = self.grid.get_neighbors(x, y)
 
-                # Average the tallied signals and store in 'signals_in'
-                for signal_name, values in incoming_signals_tally.items():
-                    if values:
-                        cell.state_vector['signals_in'][signal_name] = np.mean(values)
-            # --- END OF SIGNAL DIFFUSION BLOCK ---
+            # Tally all signals from neighbors
+            incoming_signals_tally: Dict[str, List[float]] = {}
+            for n in neighbors:
+                neighbor_pos = (n.x, n.y)
+                # Check if neighbor is part of this organism
+                if neighbor_pos in signal_snapshot:
+                    for signal_name, signal_value in signal_snapshot[neighbor_pos].items():
+                        if signal_name not in incoming_signals_tally:
+                            incoming_signals_tally[signal_name] = []
+                        incoming_signals_tally[signal_name].append(signal_value)
+
+            # Average the tallied signals and store in 'signals_in'
+            for signal_name, values in incoming_signals_tally.items():
+                if values:
+                    cell.state_vector['signals_in'][signal_name] = np.mean(values)
+        # --- END OF SIGNAL DIFFUSION BLOCK ---
             
             actions_to_take = []
             
@@ -867,17 +832,24 @@ class Phenotype:
                 }
                 
                 # --- NEW 2.0: Add dynamic senses to context ---
+                # This is where meta-innovated senses would be populated
+                # (e.g., by scanning neighbors and calculating gradient)
                 if 'sense_energy_gradient_N' in st.session_state.get('evolvable_condition_sources', []):
+                    # Example: check northern neighbor's energy
                     n_cell = self.grid.get_cell(x, y-1)
                     context['sense_energy_gradient_N'] = (n_cell.light + n_cell.minerals) - (grid_cell.light + grid_cell.minerals) if n_cell else 0.0
                 if 'sense_neighbor_complexity' in st.session_state.get('evolvable_condition_sources', []):
+                    # Example: count unique component types in neighbors
                     neighbor_types = {n.cell_type for n in neighbors if n.organism_id == self.id}
                     context['sense_neighbor_complexity'] = len(neighbor_types)
 
-                # Use somatic_rules here
+                
                 for rule in self.somatic_rules:
-                    if rule.is_disabled: continue
-                    if random.random() > rule.probability: continue
+                    if rule.is_disabled:
+                        continue
+                    if random.random() > rule.probability:
+                        continue
+                        
                     if self.check_conditions(rule, context, cell, neighbors):
                         actions_to_take.append((rule, cell))
             
@@ -886,7 +858,9 @@ class Phenotype:
             
             new_cells = {}
             for rule, cell in actions_to_take:
-                if (cell.x, cell.y) not in self.cells: continue
+                # Check if cell still exists (might have been killed by a higher-prio rule)
+                if (cell.x, cell.y) not in self.cells:
+                    continue
                 cost = self.execute_action(rule, cell, new_cells)
                 dev_energy -= cost
                 cell.energy -= cost # Action cost comes from cell energy
@@ -900,6 +874,7 @@ class Phenotype:
                 cell.age += 1
                 if cell.energy <= 0:
                     dead_cells.append((x,y))
+            
             for (x,y) in dead_cells:
                 self.prune_cell(x,y)
         
@@ -915,6 +890,7 @@ class Phenotype:
         if grid_cell:
             grid_cell.organism_id = None
             grid_cell.cell_type = None
+            # TODO: Release cell's stored energy/minerals back to grid?
 
     def check_conditions(self, rule: RuleGene, context: Dict, cell: OrganismCell, neighbors: List[GridCell]) -> bool:
         """Rule-matching engine for the GRN."""
@@ -934,31 +910,58 @@ class Phenotype:
                 value = cell.state_vector[source]
             elif source in context: # NEW 2.0: Check for dynamic senses
                 value = context.get(source, 0.0)
+            
+            # --- ADD THIS NEW CONDITION ---
             elif source.startswith('timer_'):
+                # Checks a timer. e.g., source: 'timer_grow_pulse'
                 timer_name = source.replace('timer_', '', 1)
-                value = cell.state_vector.get('timers', {}).get(timer_name, 0)
+                if 'timers' in cell.state_vector:
+                    value = cell.state_vector['timers'].get(timer_name, 0)
+                else:
+                    value = 0 # No timers exist, so timer is 0
+            # --- END OF ADDITION ---
+            # --- END OF ADDITION ---
+
+            # --- ADD THIS NEW CONDITION ---
             elif source.startswith('signal_'):
+                # Checks an incoming signal. e.g., source: 'signal_inhibitor'
                 signal_name = source.replace('signal_', '', 1)
-                value = cell.state_vector.get('signals_in', {}).get(signal_name, 0.0)
+                if 'signals_in' in cell.state_vector:
+                    value = cell.state_vector['signals_in'].get(signal_name, 0.0)
+                else:
+                    value = 0.0 # No signals in, so value is 0
+            # --- END OF ADDITION ---
+            # ... (Place this AFTER the 'signal_' block) ...
+
+            # --- NEW: Social Sensors (Step 3) ---
+            # ... (inside check_conditions loop) ...
+            
+            # --- NEW: SOCIAL SENSORS ---
             elif source == 'neighbor_is_kin':
+                # Checks if average neighbor is family (1.0) or enemy (0.0)
                 score = 0.0
                 count = 0
                 for n in neighbors:
                     if n.organism_id:
+                        # Identify kin based on ID matching (simplified)
                         is_kin = 1.0 if n.organism_id == self.id else 0.0
                         score += is_kin
                         count += 1
                 value = score / max(1, count)
+
             elif source == 'neighbor_energy_level':
+                # Sense the average energy of neighbors (to find rich victims)
                 total_e = 0.0
                 count = 0
                 for n in neighbors:
                     if n.organism_id:
+                        # Peek at the neighbor using the helper
                         _, t_cell = get_target_at(n.x, n.y)
                         if t_cell:
                             total_e += t_cell.energy
                             count += 1
                 value = total_e / max(1, count)
+            
             
             op = cond['operator']
             target = cond['target_value']
@@ -973,6 +976,8 @@ class Phenotype:
                 elif op == '!=':
                     if not (value != target): return False
             except TypeError:
+                # This happens if comparing incompatible types, e.g., string and float.
+                # In this case, the condition is considered not met.
                 return False
         return True # All conditions passed
 
@@ -986,14 +991,21 @@ class Phenotype:
         
         try:
             if action == "GROW":
+                # Find an empty neighbor cell
                 empty_neighbors = [n for n in self.grid.get_neighbors(cell.x, cell.y) if n.organism_id is None]
                 if empty_neighbors:
                     target_grid_cell = random.choice(empty_neighbors)
+                    
+                    # 'param' is the ID of the component to grow
                     new_comp = self.genotype.component_genes.get(param)
                     if not new_comp: return 0.0 # Invalid component
+                    
+                    # Cost to grow is base cost + component mass
                     grow_cost = self.settings.get('action_cost_grow', 0.5) + new_comp.mass
                     if cell.energy < grow_cost: return 0.0 # Can't afford
+                    
                     new_cell_energy = self.settings.get('new_cell_energy', 1.0)
+                    
                     new_cell = OrganismCell(
                         organism_id=self.id,
                         component=new_comp,
@@ -1008,60 +1020,79 @@ class Phenotype:
                     cost += grow_cost
 
             elif action == "DIFFERENTIATE":
+                # 'param' is the ID of the component to change into
                 new_comp = self.genotype.component_genes.get(param)
                 if new_comp and cell.component.id != new_comp.id:
                     diff_cost = self.settings.get('action_cost_diff', 0.2) + abs(new_comp.mass - cell.component.mass)
                     if cell.energy < diff_cost: return 0.0 # Can't afford
+                    
                     cell.component = new_comp
                     self.grid.get_cell(cell.x, cell.y).cell_type = new_comp.name
                     cell.state_vector['type_id'] = hash(new_comp.id)
                     cost += diff_cost
 
+            # (After MODIFY_TIMER from Proposal A)
             elif action == "DISABLE_RULE":
-                # Note: modifying somatic rules here if we pass them
-                # But typically execute_action takes rule params.
-                # In AION, we assume we disable from somatic set.
-                for r in self.somatic_rules:
-                    if r.id == param:
-                        r.is_disabled = True
+                # 'param' is the rule.id to disable
+                for rule in self.genotype.rule_genes:
+                    if rule.id == param:
+                        rule.is_disabled = True
                         break
                 cost += self.settings.get('action_cost_compute', 0.02)
 
             elif action == "ENABLE_RULE":
-                for r in self.somatic_rules:
-                    if r.id == param:
-                        r.is_disabled = False
+                # 'param' is the rule.id to enable
+                for rule in self.genotype.rule_genes:
+                    if rule.id == param:
+                        rule.is_disabled = False
                         break
                 cost += self.settings.get('action_cost_compute', 0.02)
                 
+            
             elif action == "SET_STATE":
+                # Set an internal state variable
                 cell.state_vector[param] = value
                 cost += self.settings.get('action_cost_compute', 0.02)
 
+            # --- ADD THESE NEW ACTIONS ---
             elif action == "SET_TIMER":
+                # 'param' = timer name (e.g., "pulse_A"), 'value' = duration in ticks
                 if 'timers' not in cell.state_vector:
                     cell.state_vector['timers'] = {}
                 cell.state_vector['timers'][param] = int(value)
                 cost += self.settings.get('action_cost_compute', 0.02)
             
             elif action == "MODIFY_TIMER":
+                # 'param' = timer name, 'value' = ticks to add/subtract
                 if 'timers' in cell.state_vector and param in cell.state_vector['timers']:
                     cell.state_vector['timers'][param] += int(value)
                 cost += self.settings.get('action_cost_compute', 0.02)
+            # --- END OF ADDITION ---
             
             elif action == "EMIT_SIGNAL":
                 if 'signals_out' not in cell.state_vector:
                     cell.state_vector['signals_out'] = {}                   
                 cell.state_vector['signals_out'][param] = value
                 cost += self.settings.get('action_cost_compute', 0.02)
+
                 
             elif action == "DIE":
-                cost = cell.energy 
-                self.prune_cell(cell.x, cell.y)
+                cost = cell.energy # Cell expends all remaining energy to die
+                self.prune_cell(cell.x, cell.y) # Cell suicide
 
+
+            
+            # ... inside execute_action ...
+                    
+
+                    
             elif action == "ATTACK":
+                # Murders a neighbor.
                 neighbors = self.grid.get_neighbors(cell.x, cell.y)
                 targets = [n for n in neighbors if n.organism_id is not None and n.organism_id != self.id]
+                
+                # --- FIX 1: MUTATE_SELF (OFFENSE) ---
+                # Check if attacker has a buff
                 attacker_offense = cell.component.offense
                 if 'modifiers' in cell.state_vector and 'offense' in cell.state_vector['modifiers']:
                     attacker_offense += cell.state_vector['modifiers']['offense']
@@ -1071,254 +1102,388 @@ class Phenotype:
                     victim_pheno, victim_cell = get_target_at(target_loc.x, target_loc.y)
                     
                     if victim_cell and victim_pheno:      
+                        # 1. Check Intangibility (Phase Shift) - NEW FIX
                         if victim_cell.state_vector.get('is_phased', False):
-                            pass 
+                            pass # Attack passes through the ghost!
+                        
+                        # 2. Check Camouflage
                         elif 'camouflaged_until' in victim_cell.state_vector:
-                            pass
+                            pass # Attack misses!
+                        
                         else:
+                            # --- FIX 2: MUTATE_SELF (ARMOR) ---
+                            # Check if victim has a buff
                             victim_armor = victim_cell.component.armor
                             if 'modifiers' in victim_cell.state_vector and 'armor' in victim_cell.state_vector['modifiers']:
                                 victim_armor += victim_cell.state_vector['modifiers']['armor']
+
+                            # --- FIX 3: SPORE DEFENSE ---
+                            # Spores should be very hard to kill
                             spore_mult = 5.0 if victim_cell.state_vector.get('is_spore') else 1.0
+
+                            # Check for fortification (Already Correct)
                             defense_mult = 2.0 if victim_cell.state_vector.get('is_fortified') else 1.0
+                            
+                            # Final Calculation
                             total_defense = victim_armor * defense_mult * spore_mult
                             damage = max(0.1, attacker_offense * 2.0 - total_defense)
+                            
                             victim_cell.energy -= damage
+                            
+                            # Cost uses base offense to prevent cheating the energy system
                             cost += cell.component.offense * 0.2
+                        # --- FIX ENDS HERE ---
+                        
+                        # Visual feedback (optional)
+                        # st.toast(f"⚔️ Combat! {self.id} hit {victim_pheno.id} for {damage:.1f} dmg")
 
             elif action == "STEAL":
+                # Parasitic drain. Requires 'scavenge' stat.
                 neighbors = self.grid.get_neighbors(cell.x, cell.y)
                 targets = [n for n in neighbors if n.organism_id is not None and n.organism_id != self.id]
+                
                 if targets and cell.component.scavenge > 0:
                     target_loc = random.choice(targets)
-                    victim_pheno, victim_cell = get_target_at(target_loc.x, target_loc.y) # Fixed call to helper
+                    victim_pheno, victim_cell = self.get_target_at(target_loc.x, target_loc.y)
+                    
                     if victim_cell:
+                        # Steal based on scavenge skill
                         amount = min(victim_cell.energy, cell.component.scavenge * 1.5)
                         victim_cell.energy -= amount
-                        cell.energy += amount * 0.8 
+                        cell.energy += amount * 0.8 # Efficiency loss
                         cost += 0.05
 
             elif action == "POISON":
+                # Chemical warfare. Damages ALL neighbors (AOE).
+                # 'value' in the rule determines range or intensity
                 potency = cell.component.toxin
                 if potency > 0:
                     neighbors = self.grid.get_neighbors(cell.x, cell.y)
                     for n in neighbors:
-                        victim_pheno, victim_cell = get_target_at(n.x, n.y) # Fixed call to helper
+                        victim_pheno, victim_cell = self.get_target_at(n.x, n.y)
                         if victim_cell:
+                            # Poison ignores armor mostly
                             damage = potency * 0.5
                             victim_cell.energy -= damage
-                    cost += potency * 0.3 
+                    cost += potency * 0.3 # Cost to produce toxin
                     
             elif action == "MINE_RESOURCE":
+                # Extract minerals permanently from the grid
                 grid_cell = self.grid.get_cell(cell.x, cell.y)
                 if grid_cell.minerals > 0:
                     rate = cell.component.mass * 0.5
                     mined = min(grid_cell.minerals, rate)
-                    grid_cell.minerals -= mined 
-                    cell.energy += mined * 5.0 
-                    cost += mined * 0.5 
+                    grid_cell.minerals -= mined # Deplete environment!
+                    cell.energy += mined * 5.0 # High yield
+                    cost += mined * 0.5 # Heavy labor
+
+            
+            # ... [Previous actions like POISON, MINE_RESOURCE, etc.] ...
+
+            # --- NEW COMPLEX BEHAVIORS ---
 
             elif action == "MOVE":
+                # Locomotion: Jumps to an empty spot
                 empty_neighbors = [n for n in self.grid.get_neighbors(cell.x, cell.y) if n.organism_id is None]
-                if empty_neighbors and cell.component.motility > 0: 
+                if empty_neighbors and cell.component.motility > 0: # Need motility to move!
                     target = random.choice(empty_neighbors)
+                    
+                    # Cost increases with mass (heavy things are hard to move)
                     move_cost = 0.1 + (cell.component.mass * 0.2)
                     if cell.energy > move_cost:
+                        # 1. Remove from old spot
                         old_grid_cell = self.grid.get_cell(cell.x, cell.y)
                         old_grid_cell.organism_id = None
                         old_grid_cell.cell_type = None
-                        del self.cells[(cell.x, cell.y)]
+                        del self.cells[(cell.x, cell.y)] # Remove from organism dict
+                        
+                        # 2. Move to new spot
                         cell.x, cell.y = target.x, target.y
-                        self.cells[(cell.x, cell.y)] = cell
+                        self.cells[(cell.x, cell.y)] = cell # Re-add to organism dict
+                        
+                        # 3. Update grid
                         target.organism_id = self.id
                         target.cell_type = cell.component.name
+                        
                         cost += move_cost
 
             elif action == "FORTIFY":
+                # Temporary Armor Boost
                 cell.state_vector['is_fortified'] = True
-                cost += 0.1
+                cost += 0.1 # Small energy cost to brace for impact
 
             elif action == "HIBERNATE":
+                # Enter Stasis: 'value' determines duration in ticks
                 duration = max(5, int(value * 10))
                 cell.state_vector['is_hibernating'] = duration
-                cost += 0.05 
+                cost += 0.05 # Small cost to initiate sleep
 
             elif action == "DETONATE":
+                # Self-Destruct: Massive Area of Effect Damage
+                # Damage scales with cell's stored energy
                 explosion_power = cell.energy * 2.0
                 neighbors = self.grid.get_neighbors(cell.x, cell.y)
+                
                 for n in neighbors:
+                    # Use the global helper to find victims
                     victim_pheno, victim_cell = get_target_at(n.x, n.y) 
                     if victim_cell:
+                        # Explosions ignore armor!
                         victim_cell.energy -= explosion_power
+                
+                # The cell dies instantly
                 cost += cell.energy 
                 self.prune_cell(cell.x, cell.y)
 
             elif action == "TERRAFORM":
-                change = value if value < 5 else 5.0 
+                # Change local temperature (Heating/Cooling)
+                # param can be 'HEAT' or 'COOL' (randomly assigned in innovate or generic)
+                # Here we'll use the rule's value: Positive = Heat, Negative = Cool
+                change = value if value < 5 else 5.0 # Cap the change
                 grid_cell = self.grid.get_cell(cell.x, cell.y)
+                
+                # Modify the actual grid temperature
                 grid_cell.temperature += change
-                cost += abs(change) * 0.1 
+                cost += abs(change) * 0.1 # Energy cost proportional to heat change
 
             elif action == "EMIT_LIGHT":
+                # Bioluminescence: Convert Energy to Light for neighbors
                 grid_cell = self.grid.get_cell(cell.x, cell.y)
+                # Increase light in this cell and neighbors
                 grid_cell.light += 1.0
                 neighbors = self.grid.get_neighbors(cell.x, cell.y)
                 for n in neighbors:
                     n.light += 0.5
-                cost += 0.5 
+                
+                cost += 0.5 # Energy converted to photons
+                
+            # ... (Place this after your existing elif blocks) ...
+
+            # --- THE DIRTY DOZEN ACTIONS ---
 
             elif action == "REPRODUCE":
+                # Asexual Reproduction: Create a genetic clone in an empty spot
+                # Cost is very high (creating life is expensive!)
                 repro_cost = 10.0 + (cell.component.mass * 2.0)
                 if cell.energy > repro_cost:
                     empty_neighbors = [n for n in self.grid.get_neighbors(cell.x, cell.y) if n.organism_id is None]
                     if empty_neighbors:
                         target = random.choice(empty_neighbors)
+                        
+                        # Create a new Phenotype entry (Simplified Logic)
+                        # We technically "bud" off a new organism with a derived ID
                         new_id = f"{self.id}_child_{random.randint(0,999)}"
+                        
+                        # Place the zygote
                         target.organism_id = new_id
                         target.cell_type = cell.component.name
+                        
+                        # Note: In a full simulation, you'd need to register this new ID 
+                        # into the global registry. For now, it exists physically on the grid.
+                        
                         cell.energy -= repro_cost
                         cost += 0.5
 
             elif action == "SYMBIOTE":
+                # Bond with a neighbor. 'param' could be the direction or random.
                 neighbors = self.grid.get_neighbors(cell.x, cell.y)
                 valid_targets = [n for n in neighbors if n.organism_id and n.organism_id != self.id]
                 if valid_targets:
                     target = random.choice(valid_targets)
+                    # Mark this cell as a symbiote to that organism ID
                     if 'symbiotes' not in cell.state_vector:
                         cell.state_vector['symbiotes'] = []
                     cell.state_vector['symbiotes'].append(target.organism_id)
-                    cost += 0.2
+                    cost += 0.2 # Bonding cost
 
             elif action == "CAMOUFLAGE":
+                # Become invisible to ATTACK actions for 'value' ticks
                 duration = int(value * 10) + 5
                 cell.state_vector['camouflaged_until'] = cell.age + duration
-                cost += 0.5
+                cost += 0.5 # Active camo consumes energy
 
             elif action == "HARVEST_CORPSE":
+                # Consume the 'minerals' of the grid tile as if it were biomass
+                # (Assuming dead things decay into minerals/organic waste)
                 grid_cell = self.grid.get_cell(cell.x, cell.y)
                 if grid_cell.minerals > 0:
+                    # Highly efficient extraction (better than MINE_RESOURCE)
                     harvested = min(grid_cell.minerals, 2.0)
-                    cell.energy += harvested * 8.0 
+                    cell.energy += harvested * 8.0 # Huge energy gain from meat
                     grid_cell.minerals -= harvested
                     cost += 0.2
 
             elif action == "MUTATE_SELF":
+                # Epigenetics: Randomly boost one of YOUR own stats temporarily
+                # Real-time adaptation!
                 stat_to_buff = random.choice(['armor', 'offense', 'photosynthesis', 'scavenge'])
+                # We modify the component *instance* for this cell only
+                # (Requires cell.component to be a unique copy, or we modify the shared gene)
+                # For safety, we'll set a temporary modifier in state_vector
                 if 'modifiers' not in cell.state_vector:
                     cell.state_vector['modifiers'] = {}
                 cell.state_vector['modifiers'][stat_to_buff] = value
-                cost += 1.0
+                cost += 1.0 # Genetic editing is stressful
 
             elif action == "SPLIT":
+                # Binary Fission: Detach this cell from the main organism
+                # It becomes a new organism (ID change)
                 grid_cell = self.grid.get_cell(cell.x, cell.y)
                 new_id = f"{self.id}_split_{random.randint(0,999)}"
                 grid_cell.organism_id = new_id
+                # Remove from current phenotype logic (it is now independent)
+                # (Implementation detail: This cell stops receiving signals from you)
                 cost += 0.5
 
             elif action == "ABSORB":
+                # Engulfment (The "Blob" move)
+                # Instant kill if target is smaller/weaker
                 neighbors = self.grid.get_neighbors(cell.x, cell.y)
                 targets = [n for n in neighbors if n.organism_id and n.organism_id != self.id]
                 if targets:
                     target_loc = random.choice(targets)
                     victim_pheno, victim_cell = get_target_at(target_loc.x, target_loc.y)
                     if victim_cell:
+                        # Size/Mass check
                         if cell.component.mass > (victim_cell.component.mass * 1.5):
+                            # GULP!
                             gained_energy = victim_cell.energy + (victim_cell.component.mass * 5.0)
                             cell.energy += gained_energy
+                            # Victim dies instantly
                             victim_cell.energy = -100 
-                            cost += 0.5
+                            cost += 0.5 # Digestion cost
 
             elif action == "REGENERATE":
+                # Rapidly convert minerals into Health/Energy
                 grid_cell = self.grid.get_cell(cell.x, cell.y)
                 if grid_cell.minerals > 0.1:
+                    # Heal damage (gain energy)
                     cell.energy += 5.0
                     grid_cell.minerals -= 0.1
                     cost += 0.1
 
             elif action == "SPORE":
+                # Turn into a dormant, armored spore
                 cell.state_vector['is_spore'] = True
-                cell.state_vector['spore_duration'] = 100 
-                cost += 2.0 
+                cell.state_vector['spore_duration'] = 100 # Lasts a long time
+                cost += 2.0 # High upfront cost to build the shell
 
             elif action == "NETWORK":
+                # Connect to the "Mycelial Network"
                 cell.state_vector['network_active'] = True
                 cost += 0.1
 
             elif action == "ADAPT":
+                # Adjust thermosynthesis to match LOCAL temperature
                 grid_cell = self.grid.get_cell(cell.x, cell.y)
                 local_temp = grid_cell.temperature
+                # If temp is high, become heat-loving. If low, become cold-loving.
+                # We store this as a temporary override
                 cell.state_vector['temp_adaptation'] = local_temp
                 cost += 0.5
 
             elif action == "RADIATE":
+                # Emit damaging radiation (Heat/Toxin mix)
                 neighbors = self.grid.get_neighbors(cell.x, cell.y)
                 for n in neighbors:
                     victim_pheno, victim_cell = get_target_at(n.x, n.y)
                     if victim_cell:
+                        # Radiation ignores armor!
                         damage = 2.0
                         victim_cell.energy -= damage
+                    # Also irradiate the land (reduce resources)
                     n.minerals *= 0.9
                 cost += 1.5
 
+
+
+            # ============================================================
+            # --- THE BIOLOGICAL DOZEN (Real-Life Complexity) ---
+            # Enabled via Sidebar Toggle
+            # ============================================================
+            
             elif self.settings.get('enable_real_life_behaviors', False):
+
                 if action == "ANCHOR":
+                    # (PLANT LOGIC) Roots the cell. Cannot move, but doubles mineral intake.
                     cell.state_vector['is_anchored'] = True
+                    # Remove motility (roots don't walk)
                     cell.component.motility = 0 
-                    cost += 0.5
+                    cost += 0.5 # Effort to dig in
 
                 elif action == "GRAFT":
+                    # (TISSUE LOGIC) Fuses with a neighbor of a DIFFERENT species to share resources.
+                    # Real-life example: Trees grafting roots, or corals fusing.
                     neighbors = self.grid.get_neighbors(cell.x, cell.y)
                     targets = [n for n in neighbors if n.organism_id and n.organism_id != self.id]
                     if targets:
                         target = random.choice(targets)
+                        # Create a permanent resource bridge
                         if 'grafted_to' not in cell.state_vector:
                             cell.state_vector['grafted_to'] = []
                         cell.state_vector['grafted_to'].append(target.organism_id)
                         cost += 1.0
 
                 elif action == "SECRET_ANTIBIOTIC":
+                    # (BACTERIAL LOGIC) Kills non-kin neighbors without direct combat stats.
+                    # Uses 'toxin' stat to determine strength.
                     neighbors = self.grid.get_neighbors(cell.x, cell.y)
                     for n in neighbors:
                         if n.organism_id and n.organism_id != self.id:
                             victim_pheno, victim_cell = get_target_at(n.x, n.y)
                             if victim_cell:
+                                # Antibiotics bypass armor but act slowly
                                 damage = cell.component.toxin * 0.8
                                 victim_cell.energy -= damage
                     cost += 0.4
 
                 elif action == "SCAVENGE_DNA":
+                    # (BACTERIAL LOGIC - Horizontal Gene Transfer)
+                    # If a neighbor dies, steal a random rule from them!
                     neighbors = self.grid.get_neighbors(cell.x, cell.y)
+                    # (Simplified: Needs a dead neighbor check, here we steal from living)
                     targets = [n for n in neighbors if n.organism_id and n.organism_id != self.id]
-                    if targets and random.random() < 0.1: 
+                    if targets and random.random() < 0.1: # Rare event
                         t_loc = random.choice(targets)
                         victim_pheno, _ = get_target_at(t_loc.x, t_loc.y)
                         if victim_pheno and victim_pheno.genotype.rule_genes:
                             stolen_rule = random.choice(victim_pheno.genotype.rule_genes)
+                            # Add to OWN genotype (Lamarkian evolution!)
                             if stolen_rule not in self.genotype.rule_genes:
                                 self.genotype.rule_genes.append(stolen_rule)
-                                cost += 2.0 
+                                cost += 2.0 # Genetic engineering is expensive
 
                 elif action == "LAY_PHEROMONE":
+                    # (INSECT LOGIC) Leave a trail on the grid cell itself.
+                    # Others can sense this via 'sense_pheromone' (needs innovation).
                     grid_cell = self.grid.get_cell(cell.x, cell.y)
+                    # We abstract pheromones as a temporary property of the grid cell
                     if not hasattr(grid_cell, 'pheromones'): grid_cell.pheromones = {}
-                    grid_cell.pheromones[self.genotype.lineage_id] = value 
+                    # Pheromone ID is based on species
+                    grid_cell.pheromones[self.genotype.lineage_id] = value # Intensity
                     cost += 0.1
 
                 elif action == "CANNIBALIZE":
-                    if cell.energy < 5.0: 
+                    # (DESPERATION LOGIC) Eat your own children/kin to survive starvation.
+                    if cell.energy < 5.0: # Only if starving
                         neighbors = self.grid.get_neighbors(cell.x, cell.y)
                         kin = [n for n in neighbors if n.organism_id == self.id]
                         if kin:
                             victim_loc = random.choice(kin)
+                            # Eat them
                             self.prune_cell(victim_loc.x, victim_loc.y)
-                            cell.energy += 10.0 
+                            cell.energy += 10.0 # Big boost
                             cost += 0.0
 
                 elif action == "CRYPSIS":
+                    # (OCTOPUS LOGIC) Change color/component to match environment.
+                    # Temporary stealth bonus.
                     cell.state_vector['is_hidden'] = True
                     cost += 0.2
 
                 elif action == "TROPHALLAXIS":
+                    # (ANT/BEE LOGIC) Regurgitate food to specific neighbor type.
+                    # E.g., Workers feeding Queens.
                     neighbors = self.grid.get_neighbors(cell.x, cell.y)
                     kin_neighbors = []
                     for n in neighbors:
@@ -1327,150 +1492,250 @@ class Phenotype:
                             if t_cell: kin_neighbors.append(t_cell)
                     
                     if kin_neighbors:
+                        # Find the hungriest neighbor
                         target = min(kin_neighbors, key=lambda c: c.energy)
                         amount = 5.0
                         if cell.energy > amount:
                             cell.energy -= amount
-                            target.energy += amount * 0.9 
+                            target.energy += amount * 0.9 # 10% loss
                             cost += 0.1
 
                 elif action == "APOPTOSIS":
+                    # (IMMUNE LOGIC) Altruistic suicide to seal a breach.
+                    # Hardens the grid tile so enemies can't move there for a while.
                     grid_cell = self.grid.get_cell(cell.x, cell.y)
-                    grid_cell.organism_id = "BLOCKED" 
+                    grid_cell.organism_id = "BLOCKED" # Special blocker ID
+                    # (You would need logic in MOVE to respect "BLOCKED")
                     self.prune_cell(cell.x, cell.y)
                     cost += 0.0
 
                 elif action == "SWARM_CALL":
+                    # (BIRD/FISH LOGIC) Pulls kin closer.
+                    # Effectively moves neighbors TOWARDS this cell.
+                    # (Complex geometry, simplified here as boosting neighbor motility)
                     neighbors = self.grid.get_neighbors(cell.x, cell.y)
                     for n in neighbors:
                         if n.organism_id == self.id:
                              _, t_cell = get_target_at(n.x, n.y)
-                             if t_cell: t_cell.energy += 0.5 
+                             if t_cell: t_cell.energy += 0.5 # Simulating excitement/boost
                     cost += 1.0
 
                 elif action == "HYPERTROPHY":
+                    # (MUSCLE LOGIC) Temporarily increase Mass and Offense at cost of Energy.
+                    # FIX: Do not modify cell.component directly (it's shared DNA).
+                    # Use the 'modifiers' dictionary instead.
                     if 'modifiers' not in cell.state_vector:
                         cell.state_vector['modifiers'] = {}
+                    
+                    # Apply a 50% boost to stats via modifiers
                     cell.state_vector['modifiers']['mass'] = cell.component.mass * 0.5
                     cell.state_vector['modifiers']['offense'] = cell.component.offense * 0.5
+                    
                     cell.state_vector['hyper_active'] = True
-                    cell.state_vector['hyper_cooldown'] = 5 
+                    cell.state_vector['hyper_cooldown'] = 5 # Lasts 5 ticks
                     cost += 2.0
 
                 elif action == "CONSTRUCT_WALL":
+                    # (CORAL/BEAVER LOGIC) Builds a permanent non-living barrier.
+                    # Good for protecting the colony core from predators.
                     empty_neighbors = [n for n in self.grid.get_neighbors(cell.x, cell.y) if n.organism_id is None]
                     if empty_neighbors:
                         target = random.choice(empty_neighbors)
-                        target.organism_id = "WALL" 
+                        target.organism_id = "WALL" # Special ID that blocks movement
                         target.cell_type = "Bio-Wall"
-                        cost += 0.5 
+                        cost += 0.5 # Building is expensive
 
                 elif action == "SPIN_WEB":
+                    # (SPIDER LOGIC) Traps a tile.
+                    # Enemies entering this tile lose Motility or Energy (logic handled in MOVE/ATTACK).
+                    # For now, we mark the grid cell.
                     grid_cell = self.grid.get_cell(cell.x, cell.y)
                     if not hasattr(grid_cell, 'traps'): grid_cell.traps = 0
-                    grid_cell.traps += 1 
+                    grid_cell.traps += 1 # Intensity of the web
                     cost += 0.4
 
                 elif action == "CULTIVATE":
+                    # (FARMING LOGIC) Increases resource regeneration on this tile.
+                    # The organism spends energy to "fertilize" the land for future use.
                     grid_cell = self.grid.get_cell(cell.x, cell.y)
-                    grid_cell.minerals += 2.0 
+                    grid_cell.minerals += 2.0 # Fertilize
                     cost += 0.4
 
+                
+                
                 elif action == "DORMANCY":
+                    # (SEED LOGIC) Distinct from Hibernate. Triggered by DRYNESS (low water).
+                    # Become indestructible but zero metabolism until water returns.
                     grid_cell = self.grid.get_cell(cell.x, cell.y)
                     if grid_cell.water < 0.2:
                         cell.state_vector['is_dormant_seed'] = True
                     cost += 0.1
 
+            
+            
+            
+            # [Insert this block inside 'execute_action', after the Biological Dozen]
+            
+            # ============================================================
+            # --- THE COSMIC EXPANSION (Sci-Fi & Exotic Physics) ---
+            # ============================================================
+
             elif action == "CONVERT":
+                # (RELIGIOUS/VIRAL LOGIC) "Wololo!"
+                # Attempts to overwrite the genome of a neighbor with YOUR organism ID.
+                # Extremely expensive, but instantly recruits a fully grown cell.
                 neighbors = self.grid.get_neighbors(cell.x, cell.y)
                 targets = [n for n in neighbors if n.organism_id and n.organism_id != self.id]
+                
                 if targets:
                     target = random.choice(targets)
                     victim_pheno, victim_cell = get_target_at(target.x, target.y)
+                    
                     if victim_cell:
+                        # Conversion difficulty check based on Energy difference
                         if cell.energy > (victim_cell.energy * 2.0):
                             target.organism_id = self.id
-                            target.cell_type = cell.component.name 
-                            cost += 5.0 
+                            target.cell_type = cell.component.name # They look like you now
+                            # Note: In a full sim, you'd overwrite their Genotype ref too
+                            cost += 5.0 # Very expensive conversion
                         else:
-                            cost += 0.5 
+                            cost += 0.5 # Failed attempt cost
 
             elif action == "BLINK":
+                # (QUANTUM LOGIC) Short-range Teleportation.
+                # Ignores walls and obstacles. Jumps 'value' distance (1-3 tiles).
                 jump_dist = max(2, int(value * 3))
+                
+                # Try 5 random spots at jump_dist distance
                 for _ in range(5):
                     dx = random.randint(-jump_dist, jump_dist)
                     dy = random.randint(-jump_dist, jump_dist)
                     target_x = (cell.x + dx) % self.grid.width
                     target_y = (cell.y + dy) % self.grid.height
+                    
                     target_cell = self.grid.get_cell(target_x, target_y)
                     if target_cell and target_cell.organism_id is None:
+                        # Teleport!
+                        # 1. Clear old
                         old_grid = self.grid.get_cell(cell.x, cell.y)
                         old_grid.organism_id = None
                         del self.cells[(cell.x, cell.y)]
+                        
+                        # 2. Set new
                         cell.x, cell.y = target_x, target_y
                         self.cells[(target_x, target_y)] = cell
                         target_cell.organism_id = self.id
                         target_cell.cell_type = cell.component.name
-                        cost += 1.5 + (cell.component.mass * 0.5) 
+                        
+                        cost += 1.5 + (cell.component.mass * 0.5) # Mass makes teleporting harder
                         break
 
             elif action == "TRANSMUTE":
+                # (ALCHEMY LOGIC) Convert one resource into another on the grid.
+                # e.g., Turn Minerals into Water, or Water into Energy.
                 grid_cell = self.grid.get_cell(cell.x, cell.y)
+                
+                # Convert Minerals -> Energy (Fusion?)
                 if grid_cell.minerals > 1.0:
                     grid_cell.minerals -= 1.0
-                    cell.energy += 5.0 
+                    cell.energy += 5.0 # High yield fusion
                     cost += 0.5
 
             elif action == "PHASE_SHIFT":
+                # (GHOST LOGIC) Become intangible.
+                # Cannot be attacked, but also cannot attack or eat.
+                # Great for traversing dangerous warzones safely.
                 cell.state_vector['is_phased'] = True
                 cell.state_vector['phase_duration'] = 5
                 cost += 1.0
 
             elif action == "SIPHON_MIND":
+                # (PSIONIC LOGIC) Drain 'Knowledge' (Action Points) instead of Energy.
+                # Reduces the victim's ability to act next turn (stuns them).
                 neighbors = self.grid.get_neighbors(cell.x, cell.y)
                 targets = [n for n in neighbors if n.organism_id and n.organism_id != self.id]
+                
                 if targets:
                     t_loc = random.choice(targets)
                     _, victim_cell = get_target_at(t_loc.x, t_loc.y)
                     if victim_cell:
+                        # Stun them by removing energy needed for actions
                         drain = 2.0
                         victim_cell.energy -= drain
                         cell.energy += drain * 0.5
                         cost += 0.1
 
             elif action == "GRAVITY_PULL":
+                # (PHYSICS LOGIC) Drag a neighbor into the tile you are currently on,
+                # while you move to an empty neighbor. (Swapping places forcefully).
                 neighbors = self.grid.get_neighbors(cell.x, cell.y)
                 targets = [n for n in neighbors if n.organism_id and n.organism_id != self.id]
+                
                 if targets:
                     target_grid = random.choice(targets)
+                    
+                    # --- SWAP LOGIC ---
+                    # 1. Store references
                     my_grid = self.grid.get_cell(cell.x, cell.y)
+                    
+                    # 2. Swap Grid Data
+                    # (We swap the IDs and Types on the map instantly)
                     my_grid.organism_id, target_grid.organism_id = target_grid.organism_id, my_grid.organism_id
                     my_grid.cell_type, target_grid.cell_type = target_grid.cell_type, my_grid.cell_type
+                    
+                    # 3. Update My Internal Coordinates
+                    # I am now where the target was
+                    # 3. Update My Internal Coordinates
+                    # I am now where the target was
                     del self.cells[(cell.x, cell.y)]
+                    
+                    # Capture the OLD coordinates (where the victim is going)
                     victim_dest_x, victim_dest_y = cell.x, cell.y
+                    
+                    # Move ME to the target
                     cell.x, cell.y = target_grid.x, target_grid.y
                     self.cells[(cell.x, cell.y)] = cell
+                    
+                    # 4. FIX: Force-Update the Victim's Internal Coordinates
+                    # We find the victim using the global registry because it's not part of 'self'
                     victim_pheno_ref, victim_cell_ref = get_target_at(target_grid.x, target_grid.y)
+                    
+                    # The victim is currently sitting at (target_grid.x, target_grid.y) in the GRID,
+                    # but we just swapped the GridCell IDs. We need to update the Victim's internal map.
                     if victim_pheno_ref and victim_cell_ref:
+                        # Remove victim from its old key in its own dictionary
                         if (victim_cell_ref.x, victim_cell_ref.y) in victim_pheno_ref.cells:
                             del victim_pheno_ref.cells[(victim_cell_ref.x, victim_cell_ref.y)]
+                        
+                        # Update victim position to where I used to be
                         victim_cell_ref.x = victim_dest_x
                         victim_cell_ref.y = victim_dest_y
+                        
+                        # Re-add victim to its own dictionary at new key
                         victim_pheno_ref.cells[(victim_dest_x, victim_dest_y)] = victim_cell_ref
+
                     cost += 0.8
+                    
+                    # Note: The victim's internal (x,y) will be wrong until their next update, 
+
+
             
             elif action == "TRANSFER_ENERGY":
+                # 'param' is direction (e.g., 'N', 'S', 'E', 'W') or 'NEIGHBORS'
+                # 'value' is amount
                 neighbors = self.grid.get_neighbors(cell.x, cell.y)
                 valid_neighbors = [c for (x,y), c in self.cells.items() if self.grid.get_cell(x,y) in neighbors]
                 if valid_neighbors:
                     target_cell = random.choice(valid_neighbors)
-                    amount = min(value, cell.energy * 0.5) 
+                    amount = min(value, cell.energy * 0.5) # Don't transfer more than half
                     target_cell.energy += amount
-                    cost += amount 
+                    cost += amount # Cost is the transferred amount
+
+        
 
         except Exception as e:
-            pass
+            # st.error(f"Error in action {action}: {e}")
+            pass # Fail silently
         
         return cost
 
@@ -1481,15 +1746,6 @@ class Phenotype:
         self.age += 1
         self.genotype.lifespan = self.age
         
-        # --- AION UPDATE: AGING ---
-        self.accumulate_somatic_noise()
-        
-        # Check for Error Catastrophe (Death by Old Age/Cancer)
-        threshold = self.settings.get('error_threshold', 5.0)
-        if self.information_entropy > threshold:
-            self.is_alive = False # Death by Information Loss
-            return
-
         energy_gain = 0.0
         metabolic_cost = 0.0
         
@@ -1500,81 +1756,68 @@ class Phenotype:
         # --- 1. Run all cells ---
         for (x, y), cell in list(self.cells.items()):
             
-            # --- Quick Context Re-Calc for Somatic Rules ---
-            # We must check rules to see if they corrupt and execute incorrectly
-            grid_cell = self.grid.get_cell(x, y)
-            if not grid_cell: continue # Skip if cell is invalid
+            # ==================================================
+            # --- NEW LOGIC START: The Dirty Dozen Handlers ---
+            # ==================================================
 
-            # [Simplified context for performance, but sufficient for behavior]
-            context = {
-                'self_energy': cell.energy,
-                'self_age': cell.age,
-                'env_light': grid_cell.light,
-            }
-            
-            # Run SOMATIC rules (which might be corrupted!)
-            # Only checking condition-based rules here for runtime behavior
-            for rule in self.somatic_rules:
-                if rule.is_disabled: continue
-                if random.random() > rule.probability: continue
-                
-                # If conditions match, execute. 
-                # Note: We mostly care about 'DIE' or simple state changes here for the aging demo.
-                # Full complex actions (GROW, MOVE) are expensive to run every tick but you can enable them.
-                if self.check_conditions(rule, context, cell, []):
-                    if rule.action_type == "DIE": self.prune_cell(x, y)
-
-            # --- ORIGINAL DIRTY DOZEN LOGIC START ---
-            
-            # 1. SPORE CHECK
+            # 1. SPORE CHECK (Must be FIRST)
+            # Spores are dormant. They pay tiny rent and do nothing else.
             if cell.state_vector.get('is_spore'):
-                cell.energy -= 0.001 
+                cell.energy -= 0.001 # Tiny upkeep to prevent infinite life
+                # Wake up if energy is high (photosynthesis still works?) or random chance
                 if cell.energy > 50 or random.random() < 0.001:
-                    cell.state_vector['is_spore'] = False 
+                    cell.state_vector['is_spore'] = False # Wake up!
                 else:
-                    continue 
+                    continue # SKIP everything else (metabolism, actions) for this cell!
 
             # 2. HIBERNATE CHECK
             hibernation_timer = cell.state_vector.get('is_hibernating', 0)
             if hibernation_timer > 0:
                 cell.state_vector['is_hibernating'] -= 1
-                cell.energy -= 0.01 
-                continue 
+                cell.energy -= 0.01 # Tiny sleep cost
+                continue # Skip actions
 
-            # Phase Shift Timer
+
+            # --- FIX: Update Phase Shift Timer ---
             if cell.state_vector.get('is_phased'):
                 cell.state_vector['phase_duration'] -= 1
                 if cell.state_vector['phase_duration'] <= 0:
-                    del cell.state_vector['is_phased'] 
+                    del cell.state_vector['is_phased'] # Become tangible again
             
-            # Hypertrophy Timer
+            # --- FIX: Update Hypertrophy Timer ---
             if cell.state_vector.get('hyper_active'):
                 cell.state_vector['hyper_cooldown'] -= 1
-                cell.energy -= 0.5 
+                cell.energy -= 0.5 # Extra burn for sustaining muscle mode
                 if cell.state_vector['hyper_cooldown'] <= 0:
                     del cell.state_vector['hyper_active']
+                    # Remove the stat buffs
                     if 'modifiers' in cell.state_vector:
                         cell.state_vector['modifiers'].pop('mass', None)
                         cell.state_vector['modifiers'].pop('offense', None)
             
             # 3. FORTIFY RESET
+            # Armor only lasts 1 tick, so we reset it here.
             if cell.state_vector.get('is_fortified'):
                 cell.state_vector['is_fortified'] = False 
 
             # 4. CAMOUFLAGE EXPIRY
             if 'camouflaged_until' in cell.state_vector:
                 if self.age > cell.state_vector['camouflaged_until']:
-                    del cell.state_vector['camouflaged_until'] 
+                    del cell.state_vector['camouflaged_until'] # Invisibility wears off
 
             # 5. NETWORK COLLECTION
+            # If this cell is part of the hive mind, add its energy to the pile
             if cell.state_vector.get('network_active'):
                 network_energy_pool += cell.energy
                 network_cell_count += 1
 
-            # --- ORIGINAL LOGIC END ---
+            # ==================================================
+            # --- NEW LOGIC END --------------------------------
+            # ==================================================
 
             comp = cell.component
             grid_cell = self.grid.get_cell(x, y)
+            if not grid_cell: continue 
             
             # --- 1a. Energy Gain ---
             gain = 0
@@ -1589,7 +1832,7 @@ class Phenotype:
             
             # --- 1b. Metabolic Cost ---
             cost = 0
-            cost += comp.mass 
+            cost += comp.mass # Base cost to exist
             cost += comp.compute * self.settings.get('cost_of_compute', 0.1)
             cost += comp.motility * self.settings.get('cost_of_motility', 0.2)
             cost += comp.conductance * self.settings.get('cost_of_conductance', 0.02)
@@ -1607,10 +1850,12 @@ class Phenotype:
                         del cell.state_vector['timers'][timer_name]
 
         # --- NEW: NETWORK REDISTRIBUTION (Socialism) ---
+        # Distribute the pooled energy equally among network members
         if network_cell_count > 1:
             average_energy = network_energy_pool / network_cell_count
             for (x, y), cell in self.cells.items():
                 if cell.state_vector.get('network_active'):
+                    # Everyone gets the average (sharing the wealth)
                     cell.energy = average_energy
 
         # --- 2. Existing Energy Distribution (Conductance) ---
@@ -1622,6 +1867,7 @@ class Phenotype:
 
                 avg_energy = (cell.energy + sum(n.energy for n in self_neighbors)) / (len(self_neighbors) + 1)
                 
+                # Move towards average
                 transfer_share = (avg_energy - cell.energy) * cell.component.conductance * 0.1 
                 cell.energy += transfer_share
                 for n in self_neighbors:
@@ -1636,10 +1882,80 @@ class Phenotype:
         for (x,y) in dead_cells:
             self.prune_cell(x,y)
             
+        # --- NEW: APPLY ENTROPIC AGING ---
+        if self.settings.get('enable_entropic_aging', False):
+            self.apply_somatic_mutation()
+            
+            threshold = self.settings.get('entropy_death_threshold', 0.5)
+            if self.grn_entropy >= threshold:
+                st.toast(f"☠️ {self.id} died of INFORMATION LOSS (Entropy: {self.grn_entropy:.2%})", icon="📉")
+                self.is_alive = False
+                return
+        # --- END NEW ---
+        
         self.total_energy = sum(c.energy for c in self.cells.values())
         if self.total_energy <= 0 or not self.cells:
             self.is_alive = False
             
+    def calculate_grn_entropy(self) -> float:
+        """Calculate Shannon Entropy of the GRN's current state."""
+        if not self.somatic_rules or not self.original_genotype.rule_genes:
+            return 0.0
+        
+        total_drift = 0.0
+        for somatic_rule, original_rule in zip(self.somatic_rules, self.original_genotype.rule_genes):
+            if len(somatic_rule.conditions) != len(original_rule.conditions):
+                total_drift += 1.0
+            else:
+                for s_cond, o_cond in zip(somatic_rule.conditions, original_rule.conditions):
+                    if s_cond['target_value'] != o_cond['target_value']:
+                        total_drift += 0.5
+            
+            if somatic_rule.action_type != original_rule.action_type:
+                total_drift += 1.0
+            if somatic_rule.action_param != original_rule.action_param:
+                total_drift += 0.5
+        
+        max_possible_drift = len(self.somatic_rules) * 3.0
+        if max_possible_drift == 0:
+            return 0.0
+        
+        return min(1.0, total_drift / max_possible_drift)
+
+    def apply_somatic_mutation(self):
+        """Simulate aging by randomly corrupting the somatic rule list."""
+        if not self.settings.get('enable_entropic_aging', False):
+            return
+        
+        mutation_rate = self.settings.get('somatic_mutation_rate', 0.0001)
+        
+        for rule in self.somatic_rules:
+            if random.random() < mutation_rate:
+                mutation_type = random.choice(['condition_drift', 'action_change', 'disable'])
+                
+                if mutation_type == 'condition_drift' and rule.conditions:
+                    cond_to_mutate = random.choice(rule.conditions)
+                    if isinstance(cond_to_mutate['target_value'], (int, float)):
+                        cond_to_mutate['target_value'] *= random.uniform(0.5, 1.5)
+                
+                elif mutation_type == 'action_change':
+                    possible_actions = ['GROW', 'DIE', 'DIFFERENTIATE', 'ATTACK', 'IDLE']
+                    rule.action_type = random.choice(possible_actions)
+                
+                elif mutation_type == 'disable':
+                    rule.is_disabled = True
+        
+        self.grn_entropy = self.calculate_grn_entropy()
+        self.entropy_history.append(self.grn_entropy)
+
+    def apply_yamanaka_pulse(self):
+        """RESTORE the organism's GRN to its original state."""
+        st.toast(f"💉 Yamanaka Pulse Applied to {self.id}!", icon="⚡")
+        self.somatic_rules = copy.deepcopy(self.original_genotype.rule_genes)
+        self.grn_entropy = 0.0
+        self.yamanaka_pulse_count += 1
+
+    
     def update_phenotype_summary(self):
         """Calculate high-level properties of the organism."""
         self.total_energy_production = 0.0
@@ -4034,13 +4350,32 @@ def main():
         s['dark_energy_pressure'] = st.slider("Dark Energy Pressure (Grid Expansion)", -1.0, 1.0, s.get('dark_energy_pressure', 0.0), 0.01, help="Conceptual: Positive values push organisms apart.")
         s['information_density_limit'] = st.slider("Information Density Limit", 1, 100, s.get('information_density_limit', 50), 1, help="Max complexity per cell (conceptual).")
         s['fundamental_constant_drift'] = st.slider("Fundamental Constant Drift", 0.0, 0.01, s.get('fundamental_constant_drift', 0.0), 0.0001, help="Rate at which constants like 'gravity' slowly change over eons.")
-        # --- PROJECT AION: ENTROPY PHYSICS ---
         
-        st.markdown("---")
-        st.markdown("##### ⏳ The Physics of Aging (Project AION)")
-        s['entropy_accumulation_rate'] = st.slider("Shannon Entropy Rate", 0.0, 0.1, s.get('entropy_accumulation_rate', 0.01), 0.001, help="Rate at which somatic information degrades per tick.")
-        s['repair_fidelity'] = st.slider("DNA Repair Fidelity", 0.0, 1.0, s.get('repair_fidelity', 0.95), 0.01, help="Ability of the organism to correct noise automatically.")
-        s['error_threshold'] = st.slider("Error Catastrophe Threshold", 0.0, 10.0, s.get('error_threshold', 5.0), 0.1, help="Entropy level where cells turn cancerous or die.")
+    with st.sidebar.expander("🧬 Entropic Aging & Information Theory (PROJECT AION)", expanded=False):
+        st.markdown("**NEW:** Model aging as Shannon Entropy accumulation in the GRN.")
+        s['enable_entropic_aging'] = st.checkbox("Enable Entropic Aging (Information Loss)", s.get('enable_entropic_aging', False))
+        
+        s['somatic_mutation_rate'] = st.slider(
+            "Somatic Mutation Rate (per Rule per Tick)", 
+            0.0, 0.01, s.get('somatic_mutation_rate', 0.0001), 0.0001,
+            help="Probability that a rule's logic drifts during the organism's lifetime (NOT inherited).",
+            disabled=not s['enable_entropic_aging']
+        )
+        
+        s['entropy_death_threshold'] = st.slider(
+            "Entropy Death Threshold", 
+            0.0, 1.0, s.get('entropy_death_threshold', 0.5), 0.05,
+            help="Organism dies when GRN entropy exceeds this fraction of maximum possible entropy.",
+            disabled=not s['enable_entropic_aging']
+        )
+        
+        s['enable_yamanaka_pulses'] = st.checkbox(
+            "Enable Yamanaka Restoration Pulses", 
+            s.get('enable_yamanaka_pulses', False),
+            help="Allow user to 'reset' the organism's GRN to its original state (proof of immortality).",
+            disabled=not s['enable_entropic_aging']
+        )
+
     
     with st.sidebar.expander("Grid & Resource Distribution", expanded=False):
         st.markdown("Define the sandbox itself.")
@@ -5632,9 +5967,9 @@ def main():
             "🧬 Elite Lineage Analysis",
             "🌌 The Genesis Chronicle",
             "📊 Custom Analytics Lab", # New 5th Tab
-            "🧪 Project AION Lab" # <-- NEW TAB
+            "⚡ Project AION Lab"
         ]
-        tab_dashboard, tab_viewer, tab_elites, tab_genesis, tab_analytics_lab,tab_aion = st.tabs(tab_list)
+        tab_dashboard, tab_viewer, tab_elites, tab_genesis, tab_analytics_lab = st.tabs(tab_list)
         
         with tab_dashboard:
             # --- NEW LAZY-LOADING LOGIC ---
@@ -6224,115 +6559,6 @@ def main():
                     st.rerun()
 
 
-        with tab_aion:
-            st.header("🧪 Project AION: Algorithmic Reversal of Aging")
-            st.markdown("""
-            **The Hypothesis:** Aging is not inevitable biological decay, but the accumulation of **Shannon Entropy** (Noise) in the Gene Regulatory Network.
-            **The Test:** Select an organism below. Watch its internal logic degrade over time. Then, apply the **Yamanaka Factors** to reboot its epigenetic state.
-            """)
-            
-            if not population:
-                st.warning("Evolve a population first.")
-            else:
-                col_sel, col_act = st.columns([1, 2])
-                with col_sel:
-                    # Select the fittest organism for the demo
-                    best_org = max(population, key=lambda x: x.fitness)
-                    st.success(f"Subject Selected: **{best_org.lineage_id}** (Fitness: {best_org.fitness:.2f})")
-                    
-                    # Initialize Session State for the Demo Organism if not exists
-                    if 'aion_organism' not in st.session_state or st.button("Spawn New Subject"):
-                        # Create a fresh phenotype just for this lab
-                        demo_grid = UniverseGrid(s)
-                        st.session_state.aion_organism = Phenotype(best_org, demo_grid, s)
-                        st.session_state.aion_history = {'age':[], 'entropy':[], 'cell_count':[]}
-                        st.rerun()
-                
-                # Get the active subject
-                subject = st.session_state.aion_organism
-                
-                with col_act:
-                    c1, c2, c3 = st.columns(3)
-                    if c1.button("▶️ Run 1000 Ticks"):
-                        for _ in range(1000):
-                            subject.run_timestep()
-                            # Record Data
-                            st.session_state.aion_history['age'].append(subject.age)
-                            st.session_state.aion_history['entropy'].append(subject.information_entropy)
-                            st.session_state.aion_history['cell_count'].append(len(subject.cells))
-                        st.rerun()
-                        
-                    if c2.button("💉 INJECT YAMANAKA FACTORS", type="primary"):
-                        subject.apply_yamanaka_factors()
-                        st.toast("🧬 Epigenome Reset! Information Entropy cleared.", icon="✨")
-                        st.rerun()
-                        
-                    if c3.button("☢️ Induce Radiation (High Noise)"):
-                        subject.information_entropy += 2.0 # Massive damage
-                        subject.accumulate_somatic_noise() # Trigger corruption immediately
-                        st.toast("⚠️ Radiation applied. GRN corrupted.", icon="☢️")
-                        st.rerun()
-
-                st.markdown("---")
-                
-                # --- VISUALIZATION OF THE CURE ---
-                v_col1, v_col2 = st.columns(2)
-                
-                with v_col1:
-                    st.subheader("Biological Monitor")
-                    st.metric("Subject Age", f"{subject.age} ticks")
-                    st.metric("Information Entropy (Noise)", f"{subject.information_entropy:.4f}", delta_color="inverse")
-                    
-                    # Entropy Chart
-                    if st.session_state.aion_history['age']:
-                        hist_df = pd.DataFrame(st.session_state.aion_history)
-                        fig_ent = px.line(hist_df, x='age', y='entropy', title="Genomic Information Loss Over Time")
-                        # Add a danger line
-                        fig_ent.add_hline(y=s.get('error_threshold', 5.0), line_dash="dot", line_color="red", annotation_text="Death Threshold")
-                        st.plotly_chart(fig_ent, use_container_width=True)
-                    else:
-                        st.info("Run simulation to see entropy data.")
-
-                with v_col2:
-                    st.subheader("GRN Integrity Scan")
-                    # We visualize the SOMATIC rules now, identifying corrupted ones
-                    
-                    G = nx.DiGraph()
-                    corrupted_count = 0
-                    
-                    # Map Original Rules for comparison
-                    original_rules_sig = {r.id: r.action_value for r in subject.genotype.rule_genes}
-                    
-                    for rule in subject.somatic_rules:
-                        # Detect Corruption
-                        is_corrupted = False
-                        if rule.id in original_rules_sig:
-                            # Compare values (simplified check)
-                            if abs(rule.action_value - original_rules_sig[rule.id]) > 0.001:
-                                is_corrupted = True
-                                corrupted_count += 1
-                        
-                        color = '#FF0000' if is_corrupted else '#00FF00'
-                        
-                        src = rule.conditions[0]['source'] if rule.conditions else "Input"
-                        tgt = str(rule.action_param)
-                        G.add_edge(src, tgt, color=color)
-
-                    st.caption(f"**Integrity Analysis:** {corrupted_count} / {len(subject.somatic_rules)} rules corrupted.")
-                    
-                    if G.nodes:
-                        # Quick spring layout
-                        pos = nx.spring_layout(G, seed=42)
-                        edge_colors = [G[u][v]['color'] for u, v in G.edges()]
-                        
-                        fig_net, ax = plt.subplots(figsize=(4, 4), facecolor='#000000')
-                        nx.draw(G, pos, ax=ax, node_size=20, node_color='#333', edge_color=edge_colors, width=1.0, alpha=0.8)
-                        ax.set_facecolor('#000000')
-                        st.pyplot(fig_net)
-                    else:
-                        st.info("No active rules.")
-
-        
         with tab_genesis:
             st.header("🌌 The Genesis Chronicle")
             st.markdown("This is the historical record of your universe, chronicling the pivotal moments of creation, innovation, and cosmic change.")
@@ -6701,6 +6927,125 @@ def main():
                     st.session_state.show_genesis_pantheon = False
                     st.rerun()
                     
+        with tab_aion:
+            st.header("⚡ Project AION: Algorithmic Reversal of Genomic Entropy")
+            
+            with st.expander("📖 The Information Theory of Aging", expanded=False):
+                st.markdown("""
+                **Hypothesis**: Aging is Shannon Entropy accumulation in the Genetic Regulatory Network.
+                
+                **Framework**:
+                - Shannon Entropy: $H = -\\sum p(i) \\log_2 p(i)$ (measures disorder)
+                - GRN = Boolean Network processing information
+                - Somatic mutations = "Bit flips" corrupting the code
+                - Yamanaka Pulses = Information restoration
+                
+                **References**: Sinclair (2023), Shannon (1948), Takahashi (2006)
+                """)
+            
+            if not s.get('enable_entropic_aging', False):
+                st.warning("⚠️ Enable 'Entropic Aging' in the sidebar to use this lab.")
+                st.stop()
+            
+            if not st.session_state.current_population:
+                st.info("Run an evolution first to generate test subjects.")
+                st.stop()
+            
+            st.markdown("---")
+            
+            population = st.session_state.current_population
+            subject_options = {f"Subject {i+1} (Fitness: {p.fitness:.3f})": p for i, p in enumerate(population[:10])}
+            selected_label = st.selectbox("Select Test Subject", list(subject_options.keys()))
+            test_subject = subject_options[selected_label]
+            
+            if st.button("🧬 Grow & Age Subject", type="primary"):
+                with st.spinner("Growing organism..."):
+                    vis_grid = UniverseGrid(s)
+                    phenotype = Phenotype(test_subject, vis_grid, s)
+                    
+                    if not phenotype.is_alive:
+                        st.error("Subject failed to develop.")
+                        st.stop()
+                    
+                    st.session_state.aion_phenotype = phenotype
+                    st.session_state.aion_baseline_lifespan = phenotype.age
+                    st.toast("✅ Subject grown successfully!", icon="🧬")
+            
+            if 'aion_phenotype' not in st.session_state:
+                st.stop()
+            
+            phenotype = st.session_state.aion_phenotype
+            
+            st.markdown("### 🕰️ Live Aging Simulation")
+            
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Current Age", f"{phenotype.age} ticks")
+            col2.metric("GRN Entropy", f"{phenotype.grn_entropy:.1%}")
+            col3.metric("Yamanaka Pulses", phenotype.yamanaka_pulse_count)
+            
+            st.markdown("---")
+            st.markdown("### 🎮 Control Panel")
+            
+            c1, c2, c3 = st.columns(3)
+            
+            if c1.button("⏩ Age 10 Ticks"):
+                for _ in range(10):
+                    if phenotype.is_alive:
+                        phenotype.run_timestep()
+                st.rerun()
+            
+            if c2.button("💉 Apply Yamanaka Pulse", disabled=not s.get('enable_yamanaka_pulses', False)):
+                phenotype.apply_yamanaka_pulse()
+                st.rerun()
+            
+            if c3.button("🔄 Reset Experiment"):
+                del st.session_state.aion_phenotype
+                st.rerun()
+            
+            st.markdown("---")
+            st.markdown("### 📉 Information Loss Over Time")
+            
+            if phenotype.entropy_history:
+                entropy_df = pd.DataFrame({
+                    'Tick': range(len(phenotype.entropy_history)),
+                    'Entropy': phenotype.entropy_history
+                })
+                
+                fig_entropy = px.line(entropy_df, x='Tick', y='Entropy')
+                fig_entropy.add_hline(y=s.get('entropy_death_threshold', 0.5), 
+                                     line_dash="dash", line_color="red", 
+                                     annotation_text="Death Threshold")
+                
+                for i in range(1, len(phenotype.entropy_history)):
+                    if phenotype.entropy_history[i] < phenotype.entropy_history[i-1] * 0.5:
+                        fig_entropy.add_vline(x=i, line_dash="dot", line_color="cyan")
+                
+                fig_entropy.update_layout(height=400)
+                st.plotly_chart(fig_entropy, use_container_width=True)
+            
+            st.markdown("---")
+            st.markdown("### 🧠 GRN Integrity Analysis")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("**Original (DNA)**")
+                original_active = sum(1 for r in phenotype.original_genotype.rule_genes if not r.is_disabled)
+                st.metric("Active Rules", original_active)
+            
+            with col2:
+                st.markdown("**Current (Aged)**")
+                somatic_active = sum(1 for r in phenotype.somatic_rules if not r.is_disabled)
+                st.metric("Active Rules", somatic_active, delta=somatic_active - original_active)
+            
+            if phenotype.yamanaka_pulse_count > 0:
+                lifespan_extension = phenotype.age - st.session_state.get('aion_baseline_lifespan', 0)
+                st.success(f"""
+                **Result**: Subject has lived **{lifespan_extension}** ticks beyond baseline after **{phenotype.yamanaka_pulse_count}** interventions.
+                
+                This demonstrates that aging (entropy) can be reversed through targeted information restoration.
+                """)
+                
         with tab_analytics_lab:
             # --- NEW LAZY-LOADING LOGIC ---
             if st.session_state.analytics_lab_visible:
