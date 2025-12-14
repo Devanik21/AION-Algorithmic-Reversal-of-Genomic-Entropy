@@ -7083,15 +7083,13 @@ def main():
         with tab_analytics_lab:
             st.header("📊 Custom Analytics Lab")
             
-            # --- Check the Flag set by the Sidebar Button ---
+            # --- CHECK STATE FLAG ---
             if st.session_state.get('analytics_lab_visible', False):
-                
-                st.markdown("### 🧪 Analysis Results")
-                st.caption("Plots generated based on Sidebar configuration.")
+                st.markdown(f"### 🧪 Analysis Results ({s.get('num_custom_plots', 4)} Plots)")
                 
                 num_plots = s.get('num_custom_plots', 4)
                 
-                # A list of available plotting functions
+                # Available Plotting Functions
                 plot_functions = [
                     plot_fitness_vs_complexity,
                     plot_lifespan_vs_cell_count,
@@ -7107,38 +7105,32 @@ def main():
                     plot_elite_parallel_coords
                 ]
 
-                # Create a two-column layout
+                # Create Layout
                 cols = st.columns(2)
-                
-                # Render the requested number of plots
                 for i in range(num_plots):
                     with cols[i % 2]:
-                        # Determine which plot to show (cycle through available functions)
                         func_index = i % len(plot_functions)
                         plot_func = plot_functions[func_index]
-                        
-                        # Generate and display
                         try:
+                            # Pass 'history_df' which is defined in the main scope
                             fig = plot_func(history_df, key=f"custom_plot_{i}")
                             st.plotly_chart(fig, width='stretch', key=f"custom_plotly_chart_{i}")
                         except Exception as e:
-                            st.warning(f"Could not generate plot {i+1}: {e}")
-                
-                # --- CLEAR BUTTON ---
+                            st.error(f"Error generating plot {i+1}: {e}")
+
+                # Close Button
                 st.markdown("---")
-                if st.button("❌ Clear Analytics Lab", key="clear_analytics_lab"):
+                if st.button("❌ Clear Lab", key="btn_clear_analytics"):
                     st.session_state.analytics_lab_visible = False
                     st.rerun()
-
-            # --- DEFAULT STATE (Waiting for input) ---
+            
+            # --- DEFAULT STATE ---
             else:
-                st.info("👋 **Waiting for Input.**")
+                st.info("👈 **Waiting for input...**")
                 st.markdown("""
-                To use the Analytics Lab:
-                1. Open the **Sidebar**.
-                2. Expand **'📊 Custom Analytics Lab'**.
-                3. Choose how many plots you want.
-                4. Click **'⚡ GENERATE ANALYTICS'**.
+                1. Go to the **Sidebar**.
+                2. Expand **📊 Custom Analytics Lab**.
+                3. Choose your settings and click **⚡ GENERATE PLOTS**.
                 """)
         
         
