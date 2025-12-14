@@ -4682,10 +4682,19 @@ def main():
         s['num_ranks_to_display'] = st.slider("Number of Elite Ranks to Display", 1, 10, s.get('num_ranks_to_display', 3))
 
     with st.sidebar.expander("📊 Custom Analytics Lab", expanded=False):
-        st.markdown("Configure the custom analytics tab.")
-        s['num_custom_plots'] = st.slider("Number of Custom Plots", 0, 12, s.get('num_custom_plots', 1), 1)
+        st.markdown("Configure and generate custom plots.")
+        # 1. Configuration Slider
+        s['num_custom_plots'] = st.slider("Number of Custom Plots", 1, 12, s.get('num_custom_plots', 4), 1)
         
-    st.sidebar.markdown("---") # --- This is the separator you wanted ---
+        # 2. The Trigger Button (Now in Sidebar)
+        st.write("---")
+        if st.button("⚡ GENERATE ANALYTICS", width='stretch', key="sidebar_run_analytics"):
+            # Set the flag to True so the tab knows to render
+            st.session_state.analytics_lab_visible = True
+            # We don't need st.rerun() here usually, but it ensures immediate update
+            st.rerun()
+            
+    st.sidebar.markdown("---")
 
     with st.sidebar.expander("📖 The Creator's Compendium: A Guide to Infinite Life", expanded=False):
         
@@ -7072,12 +7081,14 @@ def main():
                 """)
                 
         with tab_analytics_lab:
-            # --- NEW LAZY-LOADING LOGIC ---
-            if st.session_state.analytics_lab_visible:
-                st.header("📊 Custom Analytics Lab")
-                st.markdown("A flexible laboratory for generating custom 2D plots to explore the relationships within your universe's evolutionary history. Configure the number of plots in the sidebar.")
-                st.markdown("---")
-
+            st.header("📊 Custom Analytics Lab")
+            
+            # --- Check the Flag set by the Sidebar Button ---
+            if st.session_state.get('analytics_lab_visible', False):
+                
+                st.markdown("### 🧪 Analysis Results")
+                st.caption("Plots generated based on Sidebar configuration.")
+                
                 num_plots = s.get('num_custom_plots', 4)
                 
                 # A list of available plotting functions
@@ -7098,26 +7109,37 @@ def main():
 
                 # Create a two-column layout
                 cols = st.columns(2)
+                
+                # Render the requested number of plots
                 for i in range(num_plots):
                     with cols[i % 2]:
-                        # Display a unique plot for each index
-                        if i < len(plot_functions):
-                            plot_func = plot_functions[i]
+                        # Determine which plot to show (cycle through available functions)
+                        func_index = i % len(plot_functions)
+                        plot_func = plot_functions[func_index]
+                        
+                        # Generate and display
+                        try:
                             fig = plot_func(history_df, key=f"custom_plot_{i}")
                             st.plotly_chart(fig, width='stretch', key=f"custom_plotly_chart_{i}")
+                        except Exception as e:
+                            st.warning(f"Could not generate plot {i+1}: {e}")
                 
-                # --- HIDE BUTTON ---
+                # --- CLEAR BUTTON ---
                 st.markdown("---")
-                if st.button("Clear & Hide Analytics Lab", key="hide_analytics_lab_button"):
+                if st.button("❌ Clear Analytics Lab", key="clear_analytics_lab"):
                     st.session_state.analytics_lab_visible = False
                     st.rerun()
 
-            # --- RENDER BUTTON ---
+            # --- DEFAULT STATE (Waiting for input) ---
             else:
-                st.info("This tab renders custom plots. It is paused to save memory.")
-                if st.button("📊 Render Custom Analytics Lab", key="render_analytics_lab_button"):
-                    st.session_state.analytics_lab_visible = True
-                    st.rerun()
+                st.info("👋 **Waiting for Input.**")
+                st.markdown("""
+                To use the Analytics Lab:
+                1. Open the **Sidebar**.
+                2. Expand **'📊 Custom Analytics Lab'**.
+                3. Choose how many plots you want.
+                4. Click **'⚡ GENERATE ANALYTICS'**.
+                """)
         
         
         
