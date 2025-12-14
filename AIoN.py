@@ -6253,8 +6253,8 @@ def main():
                 
                 with col_act:
                     c1, c2, c3 = st.columns(3)
-                    if c1.button("▶️ Run 100 Ticks"):
-                        for _ in range(100):
+                    if c1.button("▶️ Run 1000 Ticks"):
+                        for _ in range(1000):
                             subject.run_timestep()
                             # Record Data
                             st.session_state.aion_history['age'].append(subject.age)
