@@ -2523,63 +2523,65 @@ def visualize_grn_corruption(phenotype: Phenotype) -> go.Figure:
     vs. the 'Senescent Reality' (Current Aged GRN).
     Highlights corrupted rules in RED.
     """
-    import networkx as nx
-    import plotly.graph_objects as go
-    from plotly.subplots import make_subplots
-
     # --- Helper to build graph from rules ---
-    def build_graph(rules, components):
+    def build_graph(rules, components, ref_rules=None):
         G = nx.DiGraph()
-        edge_colors = []
         
         for i, rule in enumerate(rules):
             if rule.is_disabled: continue
             
-            # Source
+            # Resolve Source Name
             src = rule.conditions[0]['source'] if rule.conditions else "Input"
             if src not in G: G.add_node(src, color='#00FFFF', size=5)
             
-            # Target
+            # Resolve Target Name
             tgt_id = rule.action_param
             tgt_name = components[tgt_id].name if tgt_id in components else str(tgt_id)
             if tgt_name not in G: G.add_node(tgt_name, color='#00FF00', size=8)
             
-            # Color Logic
-            # We need to check if this specific rule index is different from the original
+            # --- Corruption Check ---
             is_corrupted = False
-            if i < len(phenotype.original_genotype.rule_genes):
-                orig = phenotype.original_genotype.rule_genes[i]
-                # distinct comparison of attributes
-                if (rule.action_type != orig.action_type or 
-                    rule.action_param != orig.action_param or
-                    abs(rule.action_value - orig.action_value) > 0.01):
-                    is_corrupted = True
+            if ref_rules:
+                # If we have a reference (Original DNA), compare this rule against it
+                if i < len(ref_rules):
+                    orig = ref_rules[i]
+                    # Check for "Bit Flips" in logic
+                    if (rule.action_type != orig.action_type or 
+                        rule.action_param != orig.action_param or
+                        abs(rule.action_value - orig.action_value) > 0.01):
+                        is_corrupted = True
             
-            col = '#FF0000' if is_corrupted else 'rgba(0, 255, 128, 0.6)'
-            width = 2.0 if is_corrupted else 0.5
+            # Color Logic: Red for Glitch, Green/Cyan for Healthy
+            col = '#FF0000' if is_corrupted else 'rgba(0, 255, 128, 0.4)'
+            width = 1.5 if is_corrupted else 0.5
             
             G.add_edge(src, tgt_name, color=col, width=width)
-            edge_colors.append(col)
             
         return G
 
     # 1. Build Graphs
+    # Graph A: The Reference (Original)
     G_orig = build_graph(phenotype.original_genotype.rule_genes, phenotype.genotype.component_genes)
-    G_curr = build_graph(phenotype.somatic_rules, phenotype.genotype.component_genes)
+    # Graph B: The Reality (Current, compared against Original)
+    G_curr = build_graph(phenotype.somatic_rules, phenotype.genotype.component_genes, ref_rules=phenotype.original_genotype.rule_genes)
     
-    # 2. Layout (Use same layout for both to make comparison easy)
-    pos = nx.spring_layout(G_orig, seed=42)
+    # 2. Layout (Use Original layout for BOTH so eyes can compare easily)
+    try:
+        pos = nx.spring_layout(G_orig, seed=42)
+    except:
+        pos = nx.random_layout(G_orig)
     
     # 3. Create Subplots
     fig = make_subplots(
         rows=1, cols=2, 
         specs=[[{'type': 'scatter'}, {'type': 'scatter'}]],
-        subplot_titles=("<b>Original Blueprint (DNA)</b>", f"<b>Current State (Age: {phenotype.age})</b>")
+        subplot_titles=("<b>Original Blueprint (DNA)</b>", f"<b>Current State (Age: {phenotype.age})</b>"),
+        horizontal_spacing=0.05
     )
 
-    # --- Function to add traces ---
+    # --- Internal Render Function ---
     def add_graph_traces(G, pos, row, col):
-        # Edges
+        # Draw Edges
         for u, v, data in G.edges(data=True):
             if u not in pos or v not in pos: continue
             x0, y0 = pos[u]
@@ -2588,36 +2590,40 @@ def visualize_grn_corruption(phenotype: Phenotype) -> go.Figure:
                 x=[x0, x1, None], y=[y0, y1, None],
                 mode='lines',
                 line=dict(width=data['width'], color=data['color']),
-                hoverinfo='none'
+                hoverinfo='none',
+                showlegend=False
             ), row=row, col=col)
 
-        # Nodes
-        node_x, node_y, node_c = [], [], []
+        # Draw Nodes
+        node_x, node_y, node_c, node_txt = [], [], [], []
         for n in G.nodes():
             if n in pos:
                 node_x.append(pos[n][0])
                 node_y.append(pos[n][1])
                 node_c.append(G.nodes[n]['color'])
+                node_txt.append(str(n))
                 
         fig.add_trace(go.Scatter(
             x=node_x, y=node_y,
-            mode='markers',
-            marker=dict(size=8, color=node_c),
-            text=list(G.nodes()),
-            hoverinfo='text'
+            mode='markers+text',
+            marker=dict(size=6, color=node_c, line=dict(width=0.5, color='white')),
+            text=node_txt,
+            textposition="top center",
+            textfont=dict(size=8, color='rgba(255,255,255,0.5)'),
+            hoverinfo='text',
+            showlegend=False
         ), row=row, col=col)
 
     add_graph_traces(G_orig, pos, 1, 1)
     add_graph_traces(G_curr, pos, 1, 2)
 
     fig.update_layout(
-        showlegend=False,
         plot_bgcolor='rgba(0,0,0,0)',
-        height=400,
-        margin=dict(l=10, r=10, t=40, b=10)
+        paper_bgcolor='rgba(0,0,0,0)',
+        height=350,
+        margin=dict(l=10, r=10, t=30, b=10)
     )
-    fig.update_xaxes(visible=False)
-    fig.update_yaxes(visible=False)
+    fig.update_xaxes(visible=False); fig.update_yaxes(visible=False)
     
     return fig
 
@@ -7098,36 +7104,58 @@ def main():
             col1.metric("Current Age", f"{phenotype.age} ticks")
             col2.metric("GRN Entropy", f"{phenotype.grn_entropy:.1%}")
             col3.metric("Yamanaka Pulses", phenotype.yamanaka_pulse_count)
+            
+            # ... (Inside with tab_aion, after the metrics columns) ...
+            
             st.markdown("---")
             st.markdown("### 🪞 Genetic Integrity Mirror")
             st.caption("Compare the pristine DNA (Left) with the corrupted Epigenome (Right). Red lines indicate information loss.")
             
+            # Render the mirror plot
             fig_corruption = visualize_grn_corruption(phenotype)
             st.plotly_chart(fig_corruption, width='stretch', key="aion_mirror_plot")
             
-            st.markdown("---")
+            # The Control Panel follows below...
+
             
             st.markdown("---")
             st.markdown("### 🎮 Control Panel")
             
+            # --- NEW: Adjustable Time Dilation ---
+            # This slider lets you control the "jump" size
+            ticks_to_age = st.number_input(
+                "Time Jump Duration (Ticks)", 
+                min_value=10, 
+                max_value=5000, 
+                value=500, 
+                step=50,
+                help="How many timesteps to simulate in one click. Lower values give you more precise control to catch death before it happens."
+            )
+            
             c1, c2, c3 = st.columns(3)
             
-            if c1.button("⏩ Age 1000 Ticks"):
-                for tick in range(1000):
+            # The button now uses your variable 'ticks_to_age'
+            if c1.button(f"⏩ Age {ticks_to_age} Ticks"):
+                
+                progress_bar = st.progress(0) # Visual feedback
+                
+                for i in range(ticks_to_age):
                     if not phenotype.is_alive:
                         st.warning(f"☠️ Subject was already dead (Age: {phenotype.age})")
                         break
-
-
-
                     
                     phenotype.run_timestep()
                     
+                    # Update progress every 10% to save render time
+                    if i % (max(1, ticks_to_age // 10)) == 0:
+                        progress_bar.progress((i + 1) / ticks_to_age)
+
                     if not phenotype.is_alive:
                         st.error(f"💀 DEATH BY INFORMATION LOSS at age {phenotype.age} (Entropy: {phenotype.grn_entropy:.1%})")
+                        break
 
                 if phenotype.is_alive:
-                    st.success(f"✅ Subject survived 1000 ticks! Current age: {phenotype.age}")
+                    st.success(f"✅ Subject survived {ticks_to_age} ticks! Current age: {phenotype.age}")
                         
                 st.rerun()
             
