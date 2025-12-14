@@ -4556,7 +4556,7 @@ def main():
                 min_value=10,
                 max_value=50000,
                 step=10,
-                value=s.get('num_generations', 200), # <-- Set value from loaded settings
+                value=s.get('num_generations', 20), # <-- Set value from loaded settings
                 key="generation_simulator_sync_key", # <-- Corrected key
             )
             
