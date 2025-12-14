@@ -4681,10 +4681,10 @@ def main():
         s['early_stopping_patience'] = st.slider("Early Stopping Patience", 5, 100, s.get('early_stopping_patience', 25))
         s['num_ranks_to_display'] = st.slider("Number of Elite Ranks to Display", 1, 10, s.get('num_ranks_to_display', 3))
 
-    with st.sidebar.expander("📊 Custom Analytics Lab", expanded=False):
-        st.markdown("Configure and generate custom plots.")
+    #with st.sidebar.expander("📊 Custom Analytics Lab", expanded=False):
+     #   st.markdown("Configure and generate custom plots.")
         # 1. Configuration Slider
-        s['num_custom_plots'] = st.slider("Number of Custom Plots", 1, 12, s.get('num_custom_plots', 4), 1)
+      #  s['num_custom_plots'] = st.slider("Number of Custom Plots", 1, 12, s.get('num_custom_plots', 4), 1)
         
         # 2. The Trigger Button (Now in Sidebar)
         st.write("---")
@@ -5975,7 +5975,7 @@ def main():
             "🔬 Specimen Viewer", 
             "🧬 Elite Lineage Analysis",
             "🌌 The Genesis Chronicle",
-            "📊 Custom Analytics Lab", # New 5th Tab
+        #    "📊 Custom Analytics Lab", # New 5th Tab
             "⚡ Project AION Lab"
         ]
         tab_dashboard, tab_viewer, tab_elites, tab_genesis, tab_analytics_lab,tab_aion  = st.tabs(tab_list)
