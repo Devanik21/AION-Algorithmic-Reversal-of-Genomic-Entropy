@@ -7041,6 +7041,8 @@ def main():
             
             col1, col2 = st.columns(2)
             
+            original_active = sum(1 for r in phenotype.original_genotype.rule_genes if not r.is_disabled)
+            somatic_active = sum(1 for r in phenotype.somatic_rules if not r.is_disabled)
             with col1:
                 st.markdown("**Original (DNA)**")
                 st.metric("Rule Parameters", len(phenotype.original_genotype.rule_genes) * 5)  # Rough count
@@ -7058,7 +7060,7 @@ def main():
             
             with col2:
                 st.markdown("**Current (Aged)**")
-                somatic_active = sum(1 for r in phenotype.somatic_rules if not r.is_disabled)
+                
                 st.metric("Active Rules", somatic_active, delta=somatic_active - original_active)
             
             if phenotype.yamanaka_pulse_count > 0:
