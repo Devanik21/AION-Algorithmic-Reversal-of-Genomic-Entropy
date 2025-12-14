@@ -2516,6 +2516,113 @@ def apply_physics_drift(settings: Dict):
 # ========================================================
 # UPGRADED: HIGH-DETAIL BIO-DIGITAL CORTEX (CYAN/GREEN)
 # ========================================================
+
+def visualize_grn_corruption(phenotype: Phenotype) -> go.Figure:
+    """
+    Side-by-Side comparison of the 'Platonic Ideal' (Original DNA) 
+    vs. the 'Senescent Reality' (Current Aged GRN).
+    Highlights corrupted rules in RED.
+    """
+    import networkx as nx
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+
+    # --- Helper to build graph from rules ---
+    def build_graph(rules, components):
+        G = nx.DiGraph()
+        edge_colors = []
+        
+        for i, rule in enumerate(rules):
+            if rule.is_disabled: continue
+            
+            # Source
+            src = rule.conditions[0]['source'] if rule.conditions else "Input"
+            if src not in G: G.add_node(src, color='#00FFFF', size=5)
+            
+            # Target
+            tgt_id = rule.action_param
+            tgt_name = components[tgt_id].name if tgt_id in components else str(tgt_id)
+            if tgt_name not in G: G.add_node(tgt_name, color='#00FF00', size=8)
+            
+            # Color Logic
+            # We need to check if this specific rule index is different from the original
+            is_corrupted = False
+            if i < len(phenotype.original_genotype.rule_genes):
+                orig = phenotype.original_genotype.rule_genes[i]
+                # distinct comparison of attributes
+                if (rule.action_type != orig.action_type or 
+                    rule.action_param != orig.action_param or
+                    abs(rule.action_value - orig.action_value) > 0.01):
+                    is_corrupted = True
+            
+            col = '#FF0000' if is_corrupted else 'rgba(0, 255, 128, 0.6)'
+            width = 2.0 if is_corrupted else 0.5
+            
+            G.add_edge(src, tgt_name, color=col, width=width)
+            edge_colors.append(col)
+            
+        return G
+
+    # 1. Build Graphs
+    G_orig = build_graph(phenotype.original_genotype.rule_genes, phenotype.genotype.component_genes)
+    G_curr = build_graph(phenotype.somatic_rules, phenotype.genotype.component_genes)
+    
+    # 2. Layout (Use same layout for both to make comparison easy)
+    pos = nx.spring_layout(G_orig, seed=42)
+    
+    # 3. Create Subplots
+    fig = make_subplots(
+        rows=1, cols=2, 
+        specs=[[{'type': 'scatter'}, {'type': 'scatter'}]],
+        subplot_titles=("<b>Original Blueprint (DNA)</b>", f"<b>Current State (Age: {phenotype.age})</b>")
+    )
+
+    # --- Function to add traces ---
+    def add_graph_traces(G, pos, row, col):
+        # Edges
+        for u, v, data in G.edges(data=True):
+            if u not in pos or v not in pos: continue
+            x0, y0 = pos[u]
+            x1, y1 = pos[v]
+            fig.add_trace(go.Scatter(
+                x=[x0, x1, None], y=[y0, y1, None],
+                mode='lines',
+                line=dict(width=data['width'], color=data['color']),
+                hoverinfo='none'
+            ), row=row, col=col)
+
+        # Nodes
+        node_x, node_y, node_c = [], [], []
+        for n in G.nodes():
+            if n in pos:
+                node_x.append(pos[n][0])
+                node_y.append(pos[n][1])
+                node_c.append(G.nodes[n]['color'])
+                
+        fig.add_trace(go.Scatter(
+            x=node_x, y=node_y,
+            mode='markers',
+            marker=dict(size=8, color=node_c),
+            text=list(G.nodes()),
+            hoverinfo='text'
+        ), row=row, col=col)
+
+    add_graph_traces(G_orig, pos, 1, 1)
+    add_graph_traces(G_curr, pos, 1, 2)
+
+    fig.update_layout(
+        showlegend=False,
+        plot_bgcolor='rgba(0,0,0,0)',
+        height=400,
+        margin=dict(l=10, r=10, t=40, b=10)
+    )
+    fig.update_xaxes(visible=False)
+    fig.update_yaxes(visible=False)
+    
+    return fig
+
+
+
 def visualize_neuro_web_cyan(genotype: Genotype, seed: int = 42) -> go.Figure:
     """
     A distinct, high-detail 'Neural Web' visualization.
@@ -6991,6 +7098,14 @@ def main():
             col1.metric("Current Age", f"{phenotype.age} ticks")
             col2.metric("GRN Entropy", f"{phenotype.grn_entropy:.1%}")
             col3.metric("Yamanaka Pulses", phenotype.yamanaka_pulse_count)
+            st.markdown("---")
+            st.markdown("### 🪞 Genetic Integrity Mirror")
+            st.caption("Compare the pristine DNA (Left) with the corrupted Epigenome (Right). Red lines indicate information loss.")
+            
+            fig_corruption = visualize_grn_corruption(phenotype)
+            st.plotly_chart(fig_corruption, width='stretch', key="aion_mirror_plot")
+            
+            st.markdown("---")
             
             st.markdown("---")
             st.markdown("### 🎮 Control Panel")
