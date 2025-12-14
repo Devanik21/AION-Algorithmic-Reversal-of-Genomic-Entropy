@@ -1,5 +1,5 @@
 """
-🧬 UNIVERSE SANDBOX 2.0 🧬
+🧬 AION 🧬
 An Interactive Artificial Life Laboratory for Evolving
 Complex Organisms from a Primordial Soup.
 
@@ -3874,7 +3874,7 @@ class RedQueenParasite:
 
 def main():
     st.set_page_config(
-        page_title="Universe Sandbox 2.0",
+        page_title="AION",
         layout="wide",
         page_icon="🌌",
         initial_sidebar_state="expanded"
@@ -4069,7 +4069,7 @@ def main():
     # request by dramatically bloating the sidebar.
     # ===============================================
     
-    st.sidebar.markdown('<h1 style="text-align: center; color: #00aaff;">🌌<br>Universe Sandbox 2.0</h1>', unsafe_allow_html=True)
+    st.sidebar.markdown('<h1 style="text-align: center; color: #00aaff;">🌌<br>AION</h1>', unsafe_allow_html=True)
     st.sidebar.markdown("---")
     
     s = copy.deepcopy(st.session_state.settings) # Use a mutable dict `s`
