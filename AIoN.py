@@ -6989,9 +6989,22 @@ def main():
             c1, c2, c3 = st.columns(3)
             
             if c1.button("⏩ Age 1000 Ticks"):
-                for _ in range(1000):
-                    if phenotype.is_alive:
-                        phenotype.run_timestep()
+                for tick in range(1000):
+                    if not phenotype.is_alive:
+                        st.warning(f"☠️ Subject was already dead (Age: {phenotype.age})")
+                        break
+
+
+
+                    
+                    phenotype.run_timestep()
+                    
+                    if not phenotype.is_alive:
+                        st.error(f"💀 DEATH BY INFORMATION LOSS at age {phenotype.age} (Entropy: {phenotype.grn_entropy:.1%})")
+
+                if phenotype.is_alive:
+                    st.success(f"✅ Subject survived 1000 ticks! Current age: {phenotype.age}")
+                        
                 st.rerun()
             
             if c2.button("💉 Apply Yamanaka Pulse", disabled=not s.get('enable_yamanaka_pulses', False)):
@@ -7030,8 +7043,18 @@ def main():
             
             with col1:
                 st.markdown("**Original (DNA)**")
-                original_active = sum(1 for r in phenotype.original_genotype.rule_genes if not r.is_disabled)
-                st.metric("Active Rules", original_active)
+                st.metric("Rule Parameters", len(phenotype.original_genotype.rule_genes) * 5)  # Rough count
+                
+                st.markdown("**Current (Aged)**")
+                num_drifted = sum(1 for s_rule, o_rule in zip(phenotype.somatic_rules, phenotype.original_genotype.rule_genes) 
+                  if s_rule.action_type != o_rule.action_type)
+                st.metric("Corrupted Rules", num_drifted)
+                
+
+
+
+
+
             
             with col2:
                 st.markdown("**Current (Aged)**")
