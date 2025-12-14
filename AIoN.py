@@ -5978,7 +5978,7 @@ def main():
         #    "📊 Custom Analytics Lab", # New 5th Tab
             "⚡ Project AION Lab"
         ]
-        tab_dashboard, tab_viewer, tab_elites, tab_genesis, tab_analytics_lab,tab_aion  = st.tabs(tab_list)
+        tab_dashboard, tab_viewer, tab_elites, tab_genesis,tab_aion  = st.tabs(tab_list)
         
         with tab_dashboard:
             # --- NEW LAZY-LOADING LOGIC ---
