@@ -261,33 +261,7 @@ Entropy > 4.5: Runaway growth (simulated cancer)
 
 ---
 
-## 🌟 Why This Matters (For AGI Labs)
 
-### For DeepMind
-
-You're building **AlphaFold** (protein structure from sequence). We're proposing **AlphaAge**: predict entropy accumulation curves from GRN topology. 
-
-**Opportunity:** Apply your graph neural networks to real regulatory networks. Our framework gives you the loss function: `minimize H(GRN_t | GRN_0)`.
-
-### For Isomorphic Labs
-
-You're doing **in silico drug discovery**. We're showing that the "drug" might not be a molecule—it's an **information injection**.
-
-**Opportunity:** Model aging interventions as control policies, not chemical reactions. RL over GRN state space.
-
-### For Anthropic
-
-You're studying **AI alignment** (keeping models aligned to original objectives). We're studying **biological alignment** (keeping cells aligned to germline program).
-
-**Opportunity:** The math is identical. Constitutional AI ≈ Epigenetic reprogramming.
-
-### For OpenAI / General AGI Labs
-
-You're building systems that learn. We're modeling systems that **forget**—and showing that forgetting is reversible.
-
-**Opportunity:** Aging is a solved problem in your transformer models (reset weights). Biology is just slower gradient descent.
-
----
 
 ## 🚀 Technical Capabilities
 
