@@ -7080,58 +7080,56 @@ def main():
                 This demonstrates that aging (entropy) can be reversed through targeted information restoration.
                 """)
                 
-        with tab_analytics_lab:
-            st.header("📊 Custom Analytics Lab")
+        #with tab_analytics_lab:
+         #   st.header("📊 Custom Analytics Lab")
             
             # --- CHECK STATE FLAG ---
-            if st.session_state.get('analytics_lab_visible', False):
-                st.markdown(f"### 🧪 Analysis Results ({s.get('num_custom_plots', 4)} Plots)")
+          #  if st.session_state.get('analytics_lab_visible', False):
+           #     st.markdown(f"### 🧪 Analysis Results ({s.get('num_custom_plots', 4)} Plots)")
                 
-                num_plots = s.get('num_custom_plots', 4)
+            #    num_plots = s.get('num_custom_plots', 4)
                 
                 # Available Plotting Functions
-                plot_functions = [
-                    plot_fitness_vs_complexity,
-                    plot_lifespan_vs_cell_count,
-                    plot_energy_dynamics,
-                    plot_complexity_density,
-                    plot_fitness_violin_by_kingdom,
-                    plot_complexity_vs_lifespan,
-                    plot_energy_efficiency_over_time,
-                    plot_cell_count_dist_by_kingdom,
-                    plot_lifespan_dist_by_kingdom,
-                    plot_complexity_vs_energy_prod,
-                    plot_fitness_scatter_over_time,
-                    plot_elite_parallel_coords
-                ]
+            #    plot_functions = [
+             #       plot_fitness_vs_complexity,
+              #      plot_lifespan_vs_cell_count,
+               #     plot_energy_dynamics,
+                #    plot_complexity_density,
+                 #   plot_fitness_violin_by_kingdom,
+                  #  plot_complexity_vs_lifespan,
+                  #  plot_energy_efficiency_over_time,
+                   # plot_cell_count_dist_by_kingdom,
+                    #plot_lifespan_dist_by_kingdom,
+                    #plot_complexity_vs_energy_prod,
+                    #plot_fitness_scatter_over_time,
+                    #plot_elite_parallel_coords
+                #]
 
                 # Create Layout
-                cols = st.columns(2)
-                for i in range(num_plots):
-                    with cols[i % 2]:
-                        func_index = i % len(plot_functions)
-                        plot_func = plot_functions[func_index]
-                        try:
-                            # Pass 'history_df' which is defined in the main scope
-                            fig = plot_func(history_df, key=f"custom_plot_{i}")
-                            st.plotly_chart(fig, width='stretch', key=f"custom_plotly_chart_{i}")
-                        except Exception as e:
-                            st.error(f"Error generating plot {i+1}: {e}")
+                #cols = st.columns(2)
+                #for i in range(num_plots):
+               #     with cols[i % 2]:
+                #        func_index = i % len(plot_functions)
+                 #       plot_func = plot_functions[func_index]
+                  #        fig = plot_func(history_df, key=f"custom_plot_{i}")
+                   #         st.plotly_chart(fig, width='stretch', key=f"custom_plotly_chart_{i}")
+                    #    except Exception as e:
+                     #       st.error(f"Error generating plot {i+1}: {e}")
 
                 # Close Button
-                st.markdown("---")
-                if st.button("❌ Clear Lab", key="btn_clear_analytics"):
-                    st.session_state.analytics_lab_visible = False
-                    st.rerun()
+                #st.markdown("---")
+                #if st.button("❌ Clear Lab", key="btn_clear_analytics"):
+                #    st.session_state.analytics_lab_visible = False
+                #    st.rerun()
             
             # --- DEFAULT STATE ---
-            else:
-                st.info("👈 **Waiting for input...**")
-                st.markdown("""
-                1. Go to the **Sidebar**.
-                2. Expand **📊 Custom Analytics Lab**.
-                3. Choose your settings and click **⚡ GENERATE PLOTS**.
-                """)
+          #  else:
+           #     st.info("👈 **Waiting for input...**")
+            #    st.markdown("""
+             #   1. Go to the **Sidebar**.
+              #  2. Expand **📊 Custom Analytics Lab**.
+               # 3. Choose your settings and click **⚡ GENERATE PLOTS**.
+               # """)
         
         
         
