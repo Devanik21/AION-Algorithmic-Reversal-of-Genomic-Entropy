@@ -6988,8 +6988,8 @@ def main():
             
             c1, c2, c3 = st.columns(3)
             
-            if c1.button("⏩ Age 10 Ticks"):
-                for _ in range(10):
+            if c1.button("⏩ Age 1000 Ticks"):
+                for _ in range(1000):
                     if phenotype.is_alive:
                         phenotype.run_timestep()
                 st.rerun()
