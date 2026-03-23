@@ -24,7 +24,8 @@ If aging is information loss, then it is, in principle, reversible via error cor
 
 **This is not a game. This is a formalization.**
 
-![Entropy Reversal](./newplot (21).png)
+<img width="1267" height="517" alt="newplot (21)" src="https://github.com/user-attachments/assets/ad05dc90-dc40-468e-b0cc-52f67e75bb02" />
+
 
 *Figure 1: Genomic information loss crosses death threshold (5.0) after 7,110 timesteps. Yamanaka factor injection resets entropy to 0, restoring youthful GRN state.*
 
