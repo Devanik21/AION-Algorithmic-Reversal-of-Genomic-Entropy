@@ -18,4 +18,4 @@ class SimulationEngine:
 
     def step(self):
         self.tick += 1
-        time.sleep(0.001)  # Simulate compute
+        pass
