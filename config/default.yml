@@ -1,0 +1,15 @@
+# Default Configuration for AION Simulation
+
+simulation:
+  max_ticks: 10000
+  grid_width: 200
+  grid_height: 200
+
+biology:
+  mutation_rate: 0.01
+  entropy_rate: 0.005
+  repair_fidelity: 0.99
+
+yamanaka:
+  pulse_frequency: 1000
+  reset_efficiency: 0.95

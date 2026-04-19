@@ -1,0 +1,9 @@
+# Experiment A: High Entropy Accumulation
+
+simulation:
+  max_ticks: 5000
+
+biology:
+  mutation_rate: 0.05
+  entropy_rate: 0.02
+  repair_fidelity: 0.90
